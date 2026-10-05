@@ -1,0 +1,30 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "internal-quotation-api",
+	"main": "src/worker.ts",
+	"compatibility_date": "2026-10-05",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"workers_dev": true,
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "quotation",
+			"database_id": "b0398613-0809-4a61-96b1-993fbefe48f9",
+			"migrations_dir": "migrations"
+		}
+	],
+	"vars": {
+		"CORS_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173,https://internal-quotation-system.vercel.app"
+	},
+	"rules": [
+		{
+			"type": "Data",
+			"globs": [
+				"**/*.xlsx"
+			],
+			"fallthrough": true
+		}
+	]
+}

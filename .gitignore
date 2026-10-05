@@ -6,3 +6,5 @@ dist/
 *.db-shm
 .DS_Store
 *.log
+.wrangler/
+.dev.vars

@@ -2,6 +2,12 @@ import type { PriceCategory, QuotationDetail, QuotationSummary, SampleHeader } f
 
 type Envelope<T> = T & { ok: boolean; message?: string };
 
+const apiBase = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
+
+function apiUrl(path: string): string {
+  return `${apiBase}${path}`;
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   const body = (await response.json()) as Envelope<T>;
@@ -12,19 +18,19 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function fetchPriceList() {
-  return request<{ categories: PriceCategory[]; sample: SampleHeader }>("/api/price-list");
+  return request<{ categories: PriceCategory[]; sample: SampleHeader }>(apiUrl("/api/price-list"));
 }
 
 export function fetchQuotations() {
-  return request<{ quotations: QuotationSummary[] }>("/api/quotations");
+  return request<{ quotations: QuotationSummary[] }>(apiUrl("/api/quotations"));
 }
 
 export function fetchQuotation(id: string) {
-  return request<{ quotation: QuotationDetail }>(`/api/quotations/${id}`);
+  return request<{ quotation: QuotationDetail }>(apiUrl(`/api/quotations/${id}`));
 }
 
 export function createQuotation(payload: unknown) {
-  return request<{ quotation: QuotationDetail }>("/api/quotations", {
+  return request<{ quotation: QuotationDetail }>(apiUrl("/api/quotations"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -32,7 +38,7 @@ export function createQuotation(payload: unknown) {
 }
 
 export async function downloadQuotation(id: string, quotationNo: string) {
-  const response = await fetch(`/api/quotations/${id}/excel`);
+  const response = await fetch(apiUrl(`/api/quotations/${id}/excel`));
   if (!response.ok) {
     const body = (await response.json()) as { message?: string };
     throw new Error(body.message ?? "Could not download the Excel file.");

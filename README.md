@@ -58,7 +58,27 @@ SQLite 檔在 `server/data/quotation.db`。刪除這個檔再啟動，會重新�
 
 ## 現在與之後的技術
 
-現在是 React、Node.js、TypeScript、Hono、Drizzle、SQLite。PostgreSQL 與 Cloudflare Workers 留到之後。Hono 與 Drizzle 是為了那次遷移時少改路由與查詢。這次 POC 沒有登入。
+本機開發是 React、Node.js、TypeScript、Hono 與 SQLite 檔。部署到 Cloudflare 時，同一套 API 改走 Workers，資料庫用 D1（仍是 SQLite）。登入仍只在前端檢查。
+
+## 部署 API 到 Cloudflare
+
+在 `server/`：
+
+```bash
+npx wrangler login
+npm run d1:create -w server
+```
+
+把指令印出的 `database_id` 填進 `server/wrangler.jsonc` 的 `d1_databases`。然後：
+
+```bash
+npm run d1:migrate -w server
+npm run deploy -w server
+```
+
+部署完成後會得到 `https://internal-quotation-api.<account>.workers.dev`。前端的 Vercel 環境變數設 `VITE_API_BASE` 為這個網址（不要加結尾斜線，不要設成 Secret），再重新部署前端。本機不要設 `VITE_API_BASE`，請求仍走 Vite 的 `/api` 代理。
+
+若前端網域不是 `https://internal-quotation-system.vercel.app`，把它加進 `server/wrangler.jsonc` 的 `CORS_ORIGINS`。
 
 ---
 
@@ -122,4 +142,24 @@ The header month or week value can fill every month item or every week item. Tho
 
 ## Current and later technology
 
-The POC runs on React, Node.js, TypeScript, Hono, Drizzle, and SQLite. PostgreSQL and Cloudflare Workers come later. Hono and Drizzle are there so that move can keep the same routes and queries. This POC does not include sign-in.
+Local development uses React, Node.js, TypeScript, Hono, and a SQLite file. The deployed API runs on Cloudflare Workers and stores data in D1, which is SQLite hosted by Cloudflare. Sign-in is still checked only in the browser.
+
+## Deploy the API to Cloudflare
+
+From `server/`:
+
+```bash
+npx wrangler login
+npm run d1:create -w server
+```
+
+Copy the printed `database_id` into `d1_databases` in `server/wrangler.jsonc`. Then:
+
+```bash
+npm run d1:migrate -w server
+npm run deploy -w server
+```
+
+Deploy prints a URL like `https://internal-quotation-api.<account>.workers.dev`. On the frontend Vercel project, set `VITE_API_BASE` to that URL with no trailing slash, and do not mark it as a secret. Redeploy the frontend. Leave `VITE_API_BASE` unset on your machine so local requests still use the Vite `/api` proxy.
+
+If the frontend origin is not `https://internal-quotation-system.vercel.app`, add it to `CORS_ORIGINS` in `server/wrangler.jsonc`.

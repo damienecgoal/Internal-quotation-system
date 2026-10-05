@@ -2,164 +2,147 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { asc, eq } from "drizzle-orm";
 import { CATEGORIES, ITEMS, SEEDED_SEQUENCES } from "./catalog.ts";
-import * as schema from "./schema.ts";
-import { priceCategories, priceItems, quotationSequences } from "./schema.ts";
+import { getContext } from "./context.ts";
+import { SCHEMA_SQL } from "./schema-sql.ts";
+import { sqliteSql, type Sql } from "./sql.ts";
 
-const SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS price_categories (
-  id TEXT PRIMARY KEY,
-  code TEXT NOT NULL,
-  name TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
-  product_line TEXT NOT NULL DEFAULT '',
-  sort_order INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS price_items (
-  id TEXT PRIMARY KEY,
-  category_id TEXT NOT NULL REFERENCES price_categories(id),
-  display_code TEXT NOT NULL DEFAULT '',
-  name TEXT NOT NULL,
-  charge_basis TEXT NOT NULL,
-  unit_price INTEGER NOT NULL,
-  pricing_type TEXT NOT NULL,
-  sort_order INTEGER NOT NULL,
-  notes TEXT NOT NULL DEFAULT '[]',
-  group_label TEXT NOT NULL DEFAULT '',
-  quantity_locked INTEGER NOT NULL DEFAULT 0,
-  quantity_label TEXT NOT NULL DEFAULT '',
-  sample_quantity INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS quotations (
-  id TEXT PRIMARY KEY,
-  quotation_no TEXT NOT NULL UNIQUE,
-  customer_name TEXT NOT NULL,
-  short_code TEXT NOT NULL,
-  attn TEXT NOT NULL DEFAULT '',
-  tel TEXT NOT NULL DEFAULT '',
-  email TEXT NOT NULL DEFAULT '',
-  address TEXT NOT NULL DEFAULT '',
-  subject TEXT NOT NULL DEFAULT '',
-  customer_no TEXT NOT NULL DEFAULT '',
-  your_ref TEXT NOT NULL DEFAULT '',
-  revision TEXT NOT NULL DEFAULT '',
-  quotation_date TEXT NOT NULL,
-  contract_months INTEGER NOT NULL DEFAULT 0,
-  contract_weeks INTEGER NOT NULL DEFAULT 0,
-  discount INTEGER NOT NULL DEFAULT 0,
-  discount_note TEXT NOT NULL DEFAULT '',
-  total INTEGER NOT NULL,
-  created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS quotation_lines (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  quotation_id TEXT NOT NULL REFERENCES quotations(id),
-  price_item_id TEXT NOT NULL REFERENCES price_items(id),
-  quantity INTEGER NOT NULL,
-  unit_price INTEGER NOT NULL,
-  charge_basis TEXT NOT NULL,
-  pricing_type TEXT NOT NULL,
-  amount INTEGER NOT NULL,
-  included INTEGER NOT NULL DEFAULT 1
-);
-CREATE TABLE IF NOT EXISTS quotation_sequences (
-  short_code TEXT PRIMARY KEY,
-  last_seq INTEGER NOT NULL
-);
-`;
+export type CategoryRow = {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  productLine: string;
+  sortOrder: number;
+};
+
+export type ItemRow = {
+  id: string;
+  categoryId: string;
+  displayCode: string;
+  name: string;
+  chargeBasis: string;
+  unitPrice: number;
+  pricingType: string;
+  sortOrder: number;
+  notes: string;
+  groupLabel: string;
+  quantityLocked: number;
+  quantityLabel: string;
+  sampleQuantity: number;
+};
+
+let sqlite: Database.Database | null = null;
+let sqliteApi: Sql | null = null;
+const ready = new WeakMap<Sql, Promise<void>>();
 
 function databasePath(): string {
   if (process.env.DATABASE_PATH) return process.env.DATABASE_PATH;
   return fileURLToPath(new URL("../data/quotation.db", import.meta.url));
 }
 
-let sqlite: Database.Database | null = null;
-let orm: ReturnType<typeof drizzle<typeof schema>> | null = null;
-
-function seed(db: NonNullable<typeof orm>, connection: Database.Database) {
-  const count = connection.prepare("SELECT COUNT(*) AS n FROM price_categories").get() as { n: number };
-  if (count.n === 0) {
-    const insertCatalog = connection.transaction(() => {
-      for (const category of CATEGORIES) {
-        db.insert(priceCategories)
-          .values({
-            id: category.id,
-            code: category.code,
-            name: category.name,
-            description: category.description,
-            productLine: category.productLine,
-            sortOrder: category.sortOrder,
-          })
-          .run();
-      }
-      for (const item of ITEMS) {
-        db.insert(priceItems)
-          .values({
-            id: item.id,
-            categoryId: item.categoryId,
-            displayCode: item.displayCode,
-            name: item.name,
-            chargeBasis: item.chargeBasis,
-            unitPrice: item.unitPrice,
-            pricingType: item.pricingType,
-            sortOrder: item.sortOrder,
-            notes: JSON.stringify(item.notes),
-            groupLabel: item.group,
-            quantityLocked: item.quantityLocked ? 1 : 0,
-            quantityLabel: item.quantityLabel,
-            sampleQuantity: item.sampleQuantity,
-          })
-          .run();
-      }
-    });
-    insertCatalog();
-  }
-
-  for (const sequence of SEEDED_SEQUENCES) {
-    const existing = db
-      .select()
-      .from(quotationSequences)
-      .where(eq(quotationSequences.shortCode, sequence.shortCode))
-      .get();
-    if (!existing) {
-      db.insert(quotationSequences)
-        .values({ shortCode: sequence.shortCode, lastSeq: sequence.lastSeq })
-        .run();
-    }
-  }
-}
-
-function open() {
-  if (sqlite && orm) return;
+function openSqlite(): Database.Database {
+  if (sqlite) return sqlite;
   const file = databasePath();
   mkdirSync(path.dirname(file), { recursive: true });
   sqlite = new Database(file);
   sqlite.pragma("foreign_keys = ON");
-  sqlite.exec(SCHEMA_SQL);
-  const lineColumns = sqlite.prepare("PRAGMA table_info(quotation_lines)").all() as { name: string }[];
-  if (!lineColumns.some((column) => column.name === "included")) {
-    sqlite.exec("ALTER TABLE quotation_lines ADD COLUMN included INTEGER NOT NULL DEFAULT 1");
+  return sqlite;
+}
+
+export function getSql(): Sql {
+  const bound = getContext()?.sql;
+  if (bound) return bound;
+  sqliteApi ??= sqliteSql(openSqlite());
+  return sqliteApi;
+}
+
+async function execScript(sql: Sql, script: string) {
+  const statements = script
+    .split(";")
+    .map((statement) => statement.trim())
+    .filter((statement) => statement !== "");
+  for (const statement of statements) {
+    await sql.run(statement);
   }
-  orm = drizzle(sqlite, { schema });
-  seed(orm, sqlite);
 }
 
-export function getSqlite(): Database.Database {
-  open();
-  return sqlite as Database.Database;
+async function seed(sql: Sql) {
+  const count = await sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM price_categories");
+  if (Number(count?.n ?? 0) === 0) {
+    for (const category of CATEGORIES) {
+      await sql.run(
+        `INSERT INTO price_categories (id, code, name, description, product_line, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [category.id, category.code, category.name, category.description, category.productLine, category.sortOrder],
+      );
+    }
+    for (const item of ITEMS) {
+      await sql.run(
+        `INSERT INTO price_items (
+           id, category_id, display_code, name, charge_basis, unit_price, pricing_type, sort_order,
+           notes, group_label, quantity_locked, quantity_label, sample_quantity
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          item.id,
+          item.categoryId,
+          item.displayCode,
+          item.name,
+          item.chargeBasis,
+          item.unitPrice,
+          item.pricingType,
+          item.sortOrder,
+          JSON.stringify(item.notes),
+          item.group,
+          item.quantityLocked ? 1 : 0,
+          item.quantityLabel,
+          item.sampleQuantity,
+        ],
+      );
+    }
+  }
+
+  for (const sequence of SEEDED_SEQUENCES) {
+    await sql.run(
+      `INSERT INTO quotation_sequences (short_code, last_seq) VALUES (?, ?)
+       ON CONFLICT(short_code) DO NOTHING`,
+      [sequence.shortCode, sequence.lastSeq],
+    );
+  }
 }
 
-export function getDb() {
-  open();
-  return orm as NonNullable<typeof orm>;
+export function ensureReady(): Promise<void> {
+  const sql = getSql();
+  const existing = ready.get(sql);
+  if (existing) return existing;
+  const pending = (async () => {
+    await execScript(sql, SCHEMA_SQL);
+    const columns = await sql.all<{ name: string }>("PRAGMA table_info(quotation_lines)");
+    if (!columns.some((column) => column.name === "included")) {
+      await sql.run("ALTER TABLE quotation_lines ADD COLUMN included INTEGER NOT NULL DEFAULT 1");
+    }
+    await seed(sql);
+  })();
+  ready.set(sql, pending);
+  return pending;
 }
 
-export function listCategories() {
-  return getDb().select().from(priceCategories).orderBy(asc(priceCategories.sortOrder)).all();
+export async function listCategories(): Promise<CategoryRow[]> {
+  return getSql().all<CategoryRow>(
+    `SELECT id, code, name, description, product_line AS "productLine", sort_order AS "sortOrder"
+     FROM price_categories
+     ORDER BY sort_order`,
+  );
 }
 
-export function listItems() {
-  return getDb().select().from(priceItems).orderBy(asc(priceItems.sortOrder)).all();
+export async function listItems(): Promise<ItemRow[]> {
+  return getSql().all<ItemRow>(
+    `SELECT id, category_id AS "categoryId", display_code AS "displayCode", name,
+            charge_basis AS "chargeBasis", unit_price AS "unitPrice", pricing_type AS "pricingType",
+            sort_order AS "sortOrder", notes, group_label AS "groupLabel",
+            quantity_locked AS "quantityLocked", quantity_label AS "quantityLabel",
+            sample_quantity AS "sampleQuantity"
+     FROM price_items
+     ORDER BY sort_order`,
+  );
 }

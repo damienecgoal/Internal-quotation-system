@@ -1,18 +1,38 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { SFK_SAMPLE } from "./catalog.ts";
+import { ensureReady, listItems } from "./db.ts";
 import { buildQuotationWorkbook } from "./excel.ts";
-import { getDb } from "./db.ts";
 import { createQuotation, getPriceList, getQuotation, listQuotations } from "./quotations.ts";
-import { listItems } from "./db.ts";
 import { validateCreate } from "./validate.ts";
 
+const defaultOrigins = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "https://internal-quotation-system.vercel.app",
+];
+
 export const app = new Hono();
+
+app.use("*", async (_c, next) => {
+  await ensureReady();
+  await next();
+});
 
 app.use(
   "/api/*",
   cors({
-    origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+    origin: (origin) => {
+      const allowed = [
+        ...defaultOrigins,
+        ...(process.env.CORS_ORIGINS ?? "")
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      ];
+      if (!origin || allowed.includes(origin)) return origin ?? allowed[0];
+      return null;
+    },
   }),
 );
 
@@ -22,27 +42,26 @@ app.onError((error, c) => {
 });
 
 app.get("/api/health", (c) => {
-  getDb();
   return c.json({ ok: true });
 });
 
-app.get("/api/price-list", (c) => {
-  const { categories } = getPriceList();
+app.get("/api/price-list", async (c) => {
+  const { categories } = await getPriceList();
   return c.json({ ok: true, categories, sample: SFK_SAMPLE });
 });
 
-app.get("/api/quotations", (c) => {
-  return c.json({ ok: true, quotations: listQuotations() });
+app.get("/api/quotations", async (c) => {
+  return c.json({ ok: true, quotations: await listQuotations() });
 });
 
-app.get("/api/quotations/:id", (c) => {
-  const quotation = getQuotation(c.req.param("id"));
+app.get("/api/quotations/:id", async (c) => {
+  const quotation = await getQuotation(c.req.param("id"));
   if (!quotation) return c.json({ ok: false, error: "not_found", message: "Quotation not found." }, 404);
   return c.json({ ok: true, quotation });
 });
 
 app.get("/api/quotations/:id/excel", async (c) => {
-  const quotation = getQuotation(c.req.param("id"));
+  const quotation = await getQuotation(c.req.param("id"));
   if (!quotation) return c.json({ ok: false, error: "not_found", message: "Quotation not found." }, 404);
   const file = await buildQuotationWorkbook(quotation);
   c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -57,7 +76,7 @@ app.post("/api/quotations", async (c) => {
   } catch {
     return c.json({ ok: false, error: "invalid_json", message: "Request body must be JSON." }, 400);
   }
-  const items = listItems().map((item) => ({
+  const items = (await listItems()).map((item) => ({
     id: item.id,
     categoryId: item.categoryId,
     unitPrice: item.unitPrice,
@@ -67,6 +86,6 @@ app.post("/api/quotations", async (c) => {
   }));
   const parsed = validateCreate(body, items);
   if (!parsed.ok) return c.json({ ok: false, error: "validation", message: parsed.message }, 400);
-  const quotation = createQuotation(parsed.value);
+  const quotation = await createQuotation(parsed.value);
   return c.json({ ok: true, quotation }, 201);
 });

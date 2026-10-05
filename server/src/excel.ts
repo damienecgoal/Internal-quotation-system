@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import ExcelJS from "exceljs";
+import { getContext } from "./context.ts";
 import {
   CATEGORIES,
   CONTRACT_MONTHS_CELL,
@@ -11,7 +12,9 @@ import {
 import type { PricedLine } from "./calc.ts";
 import { excelSerial } from "./calc.ts";
 
-export const templatePath = fileURLToPath(new URL("../templates/quotation.xlsx", import.meta.url));
+function templatePath(): string {
+  return fileURLToPath(new URL("../templates/quotation.xlsx", import.meta.url));
+}
 
 const itemsById = new Map(ITEMS.map((item) => [item.id, item]));
 
@@ -51,9 +54,14 @@ function writeFormulaResult(
   cell.value = result;
 }
 
-export async function buildQuotationWorkbook(quote: WorkbookQuotation): Promise<Buffer> {
+export async function buildQuotationWorkbook(quote: WorkbookQuotation): Promise<Uint8Array> {
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(templatePath);
+  const template = getContext()?.template;
+  if (template) {
+    await workbook.xlsx.load(template as unknown as ExcelJS.Buffer);
+  } else {
+    await workbook.xlsx.readFile(templatePath());
+  }
   for (const sheet of [...workbook.worksheets]) {
     if (sheet.name !== "Quotation") workbook.removeWorksheet(sheet.id);
   }
@@ -104,5 +112,5 @@ export async function buildQuotationWorkbook(quote: WorkbookQuotation): Promise<
 
   workbook.calcProperties.fullCalcOnLoad = true;
   const output = await workbook.xlsx.writeBuffer();
-  return Buffer.isBuffer(output) ? output : Buffer.from(output);
+  return new Uint8Array(output);
 }

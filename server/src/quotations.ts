@@ -1,9 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { desc, eq } from "drizzle-orm";
 import { formatQuotationNo, priceQuotation } from "./calc.ts";
 import type { ChargeBasis, PricingType } from "./catalog.ts";
-import { getDb, getSqlite, listCategories, listItems } from "./db.ts";
-import { priceCategories, priceItems, quotationLines, quotationSequences, quotations } from "./schema.ts";
+import { getSql, listCategories, listItems } from "./db.ts";
 import type { CreateQuotationInput } from "./validate.ts";
 import { asChargeBasis, asPricingType } from "./validate.ts";
 
@@ -32,6 +29,37 @@ export type QuotationSummary = {
   createdAt: string;
 };
 
+type QuotationHeader = QuotationSummary & {
+  shortCode: string;
+  attn: string;
+  tel: string;
+  email: string;
+  address: string;
+  subject: string;
+  customerNo: string;
+  yourRef: string;
+  revision: string;
+  contractMonths: number;
+  contractWeeks: number;
+  discount: number;
+  discountNote: string;
+};
+
+type QuotationLineRow = {
+  priceItemId: string;
+  quantity: number;
+  unitPrice: number;
+  chargeBasis: string;
+  pricingType: string;
+  amount: number;
+  included: number;
+  categoryId: string;
+  displayCode: string;
+  name: string;
+  sortOrder: number;
+  categorySort: number;
+};
+
 function parseNotes(value: string): string[] {
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -42,9 +70,9 @@ function parseNotes(value: string): string[] {
   }
 }
 
-export function getPriceList(): { categories: Array<ReturnType<typeof listCategories>[number] & { items: ApiItem[] }> } {
-  const categories = listCategories();
-  const items = listItems().map((item) => ({
+export async function getPriceList(): Promise<{ categories: Array<Awaited<ReturnType<typeof listCategories>>[number] & { items: ApiItem[] }> }> {
+  const categories = await listCategories();
+  const items = (await listItems()).map((item) => ({
     id: item.id,
     categoryId: item.categoryId,
     displayCode: item.displayCode,
@@ -67,33 +95,33 @@ export function getPriceList(): { categories: Array<ReturnType<typeof listCatego
   };
 }
 
-function readQuotation(id: string) {
-  const db = getDb();
-  const header = db.select().from(quotations).where(eq(quotations.id, id)).get();
+async function readQuotation(id: string) {
+  const sql = getSql();
+  const header = await sql.get<QuotationHeader>(
+    `SELECT id, quotation_no AS "quotationNo", customer_name AS "customerName", short_code AS "shortCode",
+            attn, tel, email, address, subject, customer_no AS "customerNo", your_ref AS "yourRef",
+            revision, quotation_date AS "quotationDate", contract_months AS "contractMonths",
+            contract_weeks AS "contractWeeks", discount, discount_note AS "discountNote", total,
+            created_at AS "createdAt"
+     FROM quotations WHERE id = ?`,
+    [id],
+  );
   if (!header) return null;
-  const lines = db
-    .select({
-      priceItemId: quotationLines.priceItemId,
-      quantity: quotationLines.quantity,
-      unitPrice: quotationLines.unitPrice,
-      chargeBasis: quotationLines.chargeBasis,
-      pricingType: quotationLines.pricingType,
-      amount: quotationLines.amount,
-      included: quotationLines.included,
-      categoryId: priceItems.categoryId,
-      displayCode: priceItems.displayCode,
-      name: priceItems.name,
-      sortOrder: priceItems.sortOrder,
-      categorySort: priceCategories.sortOrder,
-    })
-    .from(quotationLines)
-    .innerJoin(priceItems, eq(quotationLines.priceItemId, priceItems.id))
-    .innerJoin(priceCategories, eq(priceItems.categoryId, priceCategories.id))
-    .where(eq(quotationLines.quotationId, id))
-    .all()
-    .sort((a, b) => a.categorySort - b.categorySort || a.sortOrder - b.sortOrder);
+  const lines = (
+    await sql.all<QuotationLineRow>(
+      `SELECT l.price_item_id AS "priceItemId", l.quantity, l.unit_price AS "unitPrice",
+              l.charge_basis AS "chargeBasis", l.pricing_type AS "pricingType", l.amount, l.included,
+              i.category_id AS "categoryId", i.display_code AS "displayCode", i.name, i.sort_order AS "sortOrder",
+              c.sort_order AS "categorySort"
+       FROM quotation_lines l
+       INNER JOIN price_items i ON i.id = l.price_item_id
+       INNER JOIN price_categories c ON c.id = i.category_id
+       WHERE l.quotation_id = ?`,
+      [id],
+    )
+  ).sort((a, b) => a.categorySort - b.categorySort || a.sortOrder - b.sortOrder);
 
-  const categories = listCategories();
+  const categories = await listCategories();
   const categorySubtotals = categories.map((category) => ({
     categoryId: category.id,
     code: category.code,
@@ -141,26 +169,19 @@ export function getQuotation(id: string) {
   return readQuotation(id);
 }
 
-export function listQuotations(): QuotationSummary[] {
-  return getDb()
-    .select({
-      id: quotations.id,
-      quotationNo: quotations.quotationNo,
-      customerName: quotations.customerName,
-      quotationDate: quotations.quotationDate,
-      total: quotations.total,
-      createdAt: quotations.createdAt,
-    })
-    .from(quotations)
-    .orderBy(desc(quotations.createdAt), desc(quotations.quotationNo))
-    .all();
+export async function listQuotations(): Promise<QuotationSummary[]> {
+  return getSql().all<QuotationSummary>(
+    `SELECT id, quotation_no AS "quotationNo", customer_name AS "customerName",
+            quotation_date AS "quotationDate", total, created_at AS "createdAt"
+     FROM quotations
+     ORDER BY created_at DESC, quotation_no DESC`,
+  );
 }
 
-export function createQuotation(input: CreateQuotationInput) {
-  const db = getDb();
-  const sqlite = getSqlite();
-  const categories = listCategories();
-  const items = listItems().map((item) => ({
+export async function createQuotation(input: CreateQuotationInput) {
+  const sql = getSql();
+  const categories = await listCategories();
+  const items = (await listItems()).map((item) => ({
     id: item.id,
     categoryId: item.categoryId,
     unitPrice: item.unitPrice,
@@ -169,68 +190,60 @@ export function createQuotation(input: CreateQuotationInput) {
     quantityLocked: item.quantityLocked === 1,
   }));
   const priced = priceQuotation(categories, items, input.quantities, input.discount, input.included);
-  const id = randomUUID();
-  let quotationNo = "";
-
-  const save = sqlite.transaction(() => {
-    const current = db
-      .select()
-      .from(quotationSequences)
-      .where(eq(quotationSequences.shortCode, input.shortCode))
-      .get();
-    const next = (current?.lastSeq ?? 0) + 1;
-    if (current) {
-      db.update(quotationSequences)
-        .set({ lastSeq: next })
-        .where(eq(quotationSequences.shortCode, input.shortCode))
-        .run();
-    } else {
-      db.insert(quotationSequences).values({ shortCode: input.shortCode, lastSeq: next }).run();
-    }
-    quotationNo = formatQuotationNo(input.quotationDate, input.shortCode, next);
-    db.insert(quotations)
-      .values({
+  const id = crypto.randomUUID();
+  const sequence = await sql.get<{ lastSeq: number }>(
+    `INSERT INTO quotation_sequences (short_code, last_seq) VALUES (?, 1)
+     ON CONFLICT(short_code) DO UPDATE SET last_seq = last_seq + 1
+     RETURNING last_seq AS "lastSeq"`,
+    [input.shortCode],
+  );
+  if (!sequence) throw new Error("Could not assign a quotation number.");
+  const quotationNo = formatQuotationNo(input.quotationDate, input.shortCode, sequence.lastSeq);
+  await sql.run(
+    `INSERT INTO quotations (
+       id, quotation_no, customer_name, short_code, attn, tel, email, address, subject, customer_no,
+       your_ref, revision, quotation_date, contract_months, contract_weeks, discount, discount_note, total, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      quotationNo,
+      input.customerName,
+      input.shortCode,
+      input.attn,
+      input.tel,
+      input.email,
+      input.address,
+      input.subject,
+      input.customerNo,
+      input.yourRef,
+      input.revision,
+      input.quotationDate,
+      input.contractMonths,
+      input.contractWeeks,
+      input.discount,
+      input.discountNote,
+      priced.total,
+      new Date().toISOString(),
+    ],
+  );
+  for (const line of priced.lines) {
+    await sql.run(
+      `INSERT INTO quotation_lines (quotation_id, price_item_id, quantity, unit_price, charge_basis, pricing_type, amount, included)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
         id,
-        quotationNo,
-        customerName: input.customerName,
-        shortCode: input.shortCode,
-        attn: input.attn,
-        tel: input.tel,
-        email: input.email,
-        address: input.address,
-        subject: input.subject,
-        customerNo: input.customerNo,
-        yourRef: input.yourRef,
-        revision: input.revision,
-        quotationDate: input.quotationDate,
-        contractMonths: input.contractMonths,
-        contractWeeks: input.contractWeeks,
-        discount: input.discount,
-        discountNote: input.discountNote,
-        total: priced.total,
-        createdAt: new Date().toISOString(),
-      })
-      .run();
-    if (priced.lines.length > 0) {
-      db.insert(quotationLines)
-        .values(
-          priced.lines.map((line) => ({
-            quotationId: id,
-            priceItemId: line.priceItemId,
-            quantity: line.quantity,
-            unitPrice: line.unitPrice,
-            chargeBasis: line.chargeBasis,
-            pricingType: line.pricingType,
-            amount: line.amount,
-            included: line.included ? 1 : 0,
-          })),
-        )
-        .run();
-    }
-  });
-  save();
+        line.priceItemId,
+        line.quantity,
+        line.unitPrice,
+        line.chargeBasis,
+        line.pricingType,
+        line.amount,
+        line.included ? 1 : 0,
+      ],
+    );
+  }
 
-  const saved = readQuotation(id);
+  const saved = await readQuotation(id);
   if (!saved) throw new Error("Saved quotation could not be read back.");
   return saved;
 }

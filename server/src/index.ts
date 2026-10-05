@@ -1,8 +1,8 @@
 import { serve } from "@hono/node-server";
 import { app } from "./app.ts";
-import { getDb } from "./db.ts";
+import { ensureReady } from "./db.ts";
 
-getDb();
+void ensureReady();
 
 const port = Number(process.env.PORT ?? 3001);
 serve({ fetch: app.fetch, hostname: "127.0.0.1", port }, (info) => {
