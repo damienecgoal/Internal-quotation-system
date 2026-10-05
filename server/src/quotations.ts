@@ -178,8 +178,16 @@ export async function listQuotations(): Promise<QuotationSummary[]> {
   );
 }
 
-export async function createQuotation(input: CreateQuotationInput) {
+export async function deleteQuotation(id: string): Promise<boolean> {
   const sql = getSql();
+  const existing = await sql.get<{ id: string }>("SELECT id FROM quotations WHERE id = ?", [id]);
+  if (!existing) return false;
+  await sql.run("DELETE FROM quotation_lines WHERE quotation_id = ?", [id]);
+  await sql.run("DELETE FROM quotations WHERE id = ?", [id]);
+  return true;
+}
+
+export async function priceDraft(input: CreateQuotationInput) {
   const categories = await listCategories();
   const items = (await listItems()).map((item) => ({
     id: item.id,
@@ -189,7 +197,12 @@ export async function createQuotation(input: CreateQuotationInput) {
     chargeBasis: asChargeBasis(item.chargeBasis),
     quantityLocked: item.quantityLocked === 1,
   }));
-  const priced = priceQuotation(categories, items, input.quantities, input.discount, input.included);
+  return priceQuotation(categories, items, input.quantities, input.discount, input.included);
+}
+
+export async function createQuotation(input: CreateQuotationInput) {
+  const sql = getSql();
+  const priced = await priceDraft(input);
   const id = crypto.randomUUID();
   const sequence = await sql.get<{ lastSeq: number }>(
     `INSERT INTO quotation_sequences (short_code, last_seq) VALUES (?, 1)

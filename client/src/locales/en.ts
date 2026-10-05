@@ -36,11 +36,17 @@ export const en = {
     discountNote: "Discount note",
   },
   actions: {
-    save: "Save quotation",
+    save: "Save",
     saving: "Saving…",
     download: "Download last saved",
     excel: "Excel",
     excelNamed: "Excel {{number}}",
+    export: "Export",
+    includeModule: "Include {{code}}. {{name}}",
+    showItems: "Show items",
+    hideItems: "Hide items",
+    delete: "Delete",
+    confirmDelete: "Confirm delete",
   },
   widget: {
     title: "Save quotation",
@@ -74,6 +80,7 @@ export const en = {
     sample: "Loaded the SFK sample. Only items with a sample count are ticked.",
     saved: "Saved {{number}}. Save again if you want the next number.",
     loaded: "Loaded {{number}}.",
+    deleted: "Deleted {{number}}.",
   },
   error: {
     required: "Customer name and short code are required.",
@@ -83,6 +90,8 @@ export const en = {
     load: "Could not load the price list.",
     download: "Could not download the Excel file.",
     open: "Could not open that quotation.",
+    delete: "Could not delete that quotation.",
+    export: "Could not export the Excel file.",
     generic: "Could not save the quotation.",
   },
 };

@@ -29,12 +29,35 @@ export function fetchQuotation(id: string) {
   return request<{ quotation: QuotationDetail }>(apiUrl(`/api/quotations/${id}`));
 }
 
+export function deleteQuotation(id: string) {
+  return request<{ ok: boolean }>(apiUrl(`/api/quotations/${id}`), { method: "DELETE" });
+}
+
 export function createQuotation(payload: unknown) {
   return request<{ quotation: QuotationDetail }>(apiUrl("/api/quotations"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
   });
+}
+
+export async function exportQuotation(payload: unknown, fileName: string) {
+  const response = await fetch(apiUrl("/api/quotations/excel"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = (await response.json()) as { message?: string };
+    throw new Error(body.message ?? "Could not export the Excel file.");
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function downloadQuotation(id: string, quotationNo: string) {

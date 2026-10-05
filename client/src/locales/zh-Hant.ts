@@ -38,11 +38,17 @@ export const zhHant: Messages = {
     discountNote: "折扣說明",
   },
   actions: {
-    save: "儲存報價",
+    save: "儲存",
     saving: "儲存中…",
     download: "下載最後儲存",
     excel: "Excel",
     excelNamed: "Excel {{number}}",
+    export: "匯出",
+    includeModule: "包括 {{code}}. {{name}}",
+    showItems: "顯示小項",
+    hideItems: "隱藏小項",
+    delete: "刪除",
+    confirmDelete: "確認刪除",
   },
   widget: {
     title: "儲存報價",
@@ -76,6 +82,7 @@ export const zhHant: Messages = {
     sample: "已載入 SFK 範例。只有有範例數量的小項會被勾選。",
     saved: "已儲存 {{number}}。若要下一個編號，請再儲存一次。",
     loaded: "已載入 {{number}}。",
+    deleted: "已刪除 {{number}}。",
   },
   error: {
     required: "請填寫客戶名稱與簡碼。",
@@ -85,6 +92,8 @@ export const zhHant: Messages = {
     load: "無法載入價目表。",
     download: "無法下載 Excel。",
     open: "無法開啟這張報價。",
+    delete: "無法刪除這張報價。",
+    export: "無法匯出 Excel。",
     generic: "無法儲存報價。",
   },
 };

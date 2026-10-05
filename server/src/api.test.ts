@@ -43,7 +43,7 @@ test("saving the SFK sample numbers quotations and returns the workbook total", 
     headers: { "content-type": "application/json" },
     body: JSON.stringify(sampleBody()),
   });
-  const second = (await secondResponse.json()) as { quotation: { quotationNo: string } };
+  const second = (await secondResponse.json()) as { quotation: { id: string; quotationNo: string } };
   assert.equal(second.quotation.quotationNo, "KR-30032026SFK-012");
 
   const invalid = await app.request("/api/quotations", {
@@ -64,4 +64,9 @@ test("saving the SFK sample numbers quotations and returns the workbook total", 
   const total = workbook.getWorksheet("Quotation")?.getCell("K297").value;
   assert.ok(total && typeof total === "object" && "result" in total);
   assert.equal(total.result, 2_040_700);
+
+  const removed = await app.request(`/api/quotations/${second.quotation.id}`, { method: "DELETE" });
+  assert.equal(removed.status, 200);
+  const afterDelete = (await (await app.request("/api/quotations")).json()) as { quotations: unknown[] };
+  assert.equal(afterDelete.quotations.length, 1);
 });

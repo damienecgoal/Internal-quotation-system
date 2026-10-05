@@ -9,7 +9,11 @@ type IconName =
   | "excel"
   | "month"
   | "week"
-  | "signin";
+  | "signin"
+  | "trash"
+  | "export"
+  | "show"
+  | "hide";
 
 export function Icon({ name }: { name: IconName }) {
   return (
@@ -85,6 +89,30 @@ const paths: Record<IconName, ReactNode> = {
       <path d="M9.5 3H12.5v10H9.5" />
       <path d="M3 8h6" />
       <path d="M6.5 5.5 9 8l-2.5 2.5" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M3.5 4.5h9" />
+      <path d="M6.5 4.5V3h3v1.5" />
+      <path d="M5 4.5l.5 8.5h5L11 4.5" />
+    </>
+  ),
+  export: (
+    <>
+      <path d="M3 10.5V13h10v-2.5" />
+      <path d="M8 3v7" />
+      <path d="M5.5 7.5 8 10l2.5-2.5" />
+    </>
+  ),
+  show: (
+    <>
+      <path d="M4 6.5 8 10.5 12 6.5" />
+    </>
+  ),
+  hide: (
+    <>
+      <path d="M4 10 8 6 12 10" />
     </>
   ),
 };

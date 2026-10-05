@@ -66,3 +66,35 @@ test("excel export fills the quotation template from the sample", async () => {
   const rateText = typeof rateOnly === "string" ? rateOnly : JSON.stringify(rateOnly);
   assert.match(rateText, /Rate only/);
 });
+
+test("excel export hides a module when none of its items are included", async () => {
+  const quantities = Object.fromEntries(ITEMS.map((item) => [item.id, item.sampleQuantity]));
+  const included = Object.fromEntries(ITEMS.map((item) => [item.id, item.categoryId !== "B" && item.sampleQuantity > 0]));
+  const priced = priceQuotation(CATEGORIES, ITEMS, quantities, SFK_SAMPLE.discount, included);
+  const file = await buildQuotationWorkbook({
+    quotationNo: "KR-30032026SFK-011",
+    customerName: SFK_SAMPLE.customerName,
+    attn: SFK_SAMPLE.attn,
+    tel: SFK_SAMPLE.tel,
+    email: SFK_SAMPLE.email,
+    address: SFK_SAMPLE.address,
+    subject: SFK_SAMPLE.subject,
+    customerNo: SFK_SAMPLE.customerNo,
+    yourRef: SFK_SAMPLE.yourRef,
+    revision: SFK_SAMPLE.revision,
+    quotationDate: SFK_SAMPLE.quotationDate,
+    contractMonths: SFK_SAMPLE.contractMonths,
+    discount: SFK_SAMPLE.discount,
+    discountNote: SFK_SAMPLE.discountNote,
+    lines: priced.lines,
+    total: priced.total,
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(file as unknown as ExcelJS.Buffer);
+  const sheet = workbook.getWorksheet("Quotation");
+  assert.ok(sheet);
+  assert.equal(sheet.getRow(45).hidden, false);
+  assert.equal(sheet.getRow(74).hidden, true);
+  assert.equal(sheet.getRow(85).hidden, true);
+  assert.equal(sheet.getRow(68).hidden, false);
+});

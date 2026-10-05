@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import { SFK_SAMPLE } from "./catalog.ts";
 import { ensureReady, listItems } from "./db.ts";
 import { buildQuotationWorkbook } from "./excel.ts";
-import { createQuotation, getPriceList, getQuotation, listQuotations } from "./quotations.ts";
+import { createQuotation, deleteQuotation, getPriceList, getQuotation, listQuotations, priceDraft } from "./quotations.ts";
 import { validateCreate } from "./validate.ts";
 
 const defaultOrigins = [
@@ -58,6 +58,45 @@ app.get("/api/quotations/:id", async (c) => {
   const quotation = await getQuotation(c.req.param("id"));
   if (!quotation) return c.json({ ok: false, error: "not_found", message: "Quotation not found." }, 404);
   return c.json({ ok: true, quotation });
+});
+
+app.delete("/api/quotations/:id", async (c) => {
+  const removed = await deleteQuotation(c.req.param("id"));
+  if (!removed) return c.json({ ok: false, error: "not_found", message: "Quotation not found." }, 404);
+  return c.json({ ok: true });
+});
+
+app.post("/api/quotations/excel", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: "invalid_json", message: "Request body must be JSON." }, 400);
+  }
+  const stored = (await listItems()).map((item) => ({
+    id: item.id,
+    categoryId: item.categoryId,
+    unitPrice: item.unitPrice,
+    pricingType: item.pricingType,
+    chargeBasis: item.chargeBasis,
+    quantityLocked: item.quantityLocked,
+  }));
+  const parsed = validateCreate(body, stored);
+  if (!parsed.ok) return c.json({ ok: false, error: "validation", message: parsed.message }, 400);
+  const priced = await priceDraft(parsed.value);
+  const requestedNo =
+    typeof body === "object" && body !== null && "quotationNo" in body && typeof body.quotationNo === "string"
+      ? body.quotationNo.trim()
+      : "";
+  const file = await buildQuotationWorkbook({
+    ...parsed.value,
+    quotationNo: requestedNo || "DRAFT",
+    lines: priced.lines,
+    total: priced.total,
+  });
+  c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  c.header("Content-Disposition", 'attachment; filename="quotation.xlsx"');
+  return c.body(new Uint8Array(file));
 });
 
 app.get("/api/quotations/:id/excel", async (c) => {

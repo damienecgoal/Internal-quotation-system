@@ -37,6 +37,33 @@ export type WorkbookQuotation = {
   total: number;
 };
 
+const MODULE_ROWS: Record<string, Array<[number, number]>> = {
+  A: [[38, 67]],
+  B: [[69, 85]],
+  C: [[86, 107]],
+  D: [[108, 131]],
+  E: [[132, 152]],
+  F: [[153, 180]],
+  G: [[181, 200]],
+  H: [[201, 228]],
+  I: [[229, 245], [247, 250]],
+  J: [[251, 268]],
+  K: [[269, 283]],
+  L: [[284, 295]],
+};
+
+function hideExcludedModules(sheet: ExcelJS.Worksheet, lines: PricedLine[]) {
+  const included = new Set(lines.filter((line) => line.included).map((line) => line.categoryId));
+  for (const [categoryId, ranges] of Object.entries(MODULE_ROWS)) {
+    if (included.has(categoryId)) continue;
+    for (const [start, end] of ranges) {
+      for (let row = start; row <= end; row += 1) sheet.getRow(row).hidden = true;
+    }
+  }
+  const integrated = ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
+  if (integrated.every((categoryId) => !included.has(categoryId))) sheet.getRow(68).hidden = true;
+}
+
 function writeFormulaResult(
   cell: ExcelJS.Cell,
   result: number,
@@ -109,6 +136,7 @@ export async function buildQuotationWorkbook(quote: WorkbookQuotation): Promise<
   }
   writeFormulaResult(sheet.getCell("K296"), quote.discount);
   writeFormulaResult(sheet.getCell(TOTAL_CELL), quote.total);
+  hideExcludedModules(sheet, quote.lines);
 
   workbook.calcProperties.fullCalcOnLoad = true;
   const output = await workbook.xlsx.writeBuffer();

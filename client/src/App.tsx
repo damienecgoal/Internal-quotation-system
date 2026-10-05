@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { createQuotation, downloadQuotation, fetchPriceList, fetchQuotation, fetchQuotations } from "./api";
+import { createQuotation, deleteQuotation, downloadQuotation, exportQuotation, fetchPriceList, fetchQuotation, fetchQuotations } from "./api";
 import { currentUser, logout } from "./auth";
 import { formatHkd, lineAmount, parseCount, todayIso } from "./calc";
 import { Icon } from "./icons";
@@ -68,6 +68,10 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [opened, setOpened] = useState<Record<string, boolean>>({});
+  const [moduleOn, setModuleOn] = useState<Record<string, boolean>>({});
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [saved, setSaved] = useState<QuotationSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState<QuotationSummary | null>(null);
@@ -147,7 +151,42 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
     }
     setQuantities(nextQty);
     setSelected(nextSelected);
+    setOpened({});
+    setModuleOn({});
     setActiveId(null);
+  }
+
+  function moduleFlags(nextSelected: Record<string, boolean>) {
+    const next: Record<string, boolean> = {};
+    for (const category of categories) {
+      next[category.id] = category.items.some((item) => nextSelected[item.id]);
+    }
+    return next;
+  }
+
+  function openUsedCategories(nextSelected: Record<string, boolean>) {
+    const nextOpened: Record<string, boolean> = {};
+    for (const category of categories) {
+      nextOpened[category.id] = category.items.some((item) => nextSelected[item.id]);
+    }
+    setOpened(nextOpened);
+    setModuleOn(moduleFlags(nextSelected));
+  }
+
+  function turnModuleOff(categoryId: string) {
+    const ids = categories.find((category) => category.id === categoryId)?.items.map((item) => item.id) ?? [];
+    setSelected((current) => {
+      const next = { ...current };
+      for (const id of ids) next[id] = false;
+      return next;
+    });
+    setOpened((current) => ({ ...current, [categoryId]: false }));
+    setModuleOn((current) => ({ ...current, [categoryId]: false }));
+  }
+
+  function turnModuleOn(categoryId: string) {
+    setModuleOn((current) => ({ ...current, [categoryId]: true }));
+    setOpened((current) => ({ ...current, [categoryId]: true }));
   }
 
   function applyBasis(basis: ChargeBasis) {
@@ -198,6 +237,7 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
     }
     setQuantities(nextQty);
     setSelected(nextSelected);
+    openUsedCategories(nextSelected);
     setActiveId(null);
     setError("");
     setNotice(t("notice.sample"));
@@ -233,6 +273,7 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
     }
     setQuantities(nextQty);
     setSelected(nextSelected);
+    openUsedCategories(nextSelected);
     setActiveId(quotation.id);
     setLastSaved(quotation);
     setError("");
@@ -240,6 +281,7 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
   }
 
   async function openSaved(id: string) {
+    setPendingDelete(null);
     setError("");
     try {
       const result = await fetchQuotation(id);
@@ -328,6 +370,66 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
     }
   }
 
+  function draftPayload(quotationNo: string) {
+    const contractMonths = parseCount(form.contractMonths);
+    const contractWeeks = parseCount(form.contractWeeks);
+    const discount = parseCount(form.discount);
+    if (form.customerName.trim() === "" || form.shortCode.trim() === "") {
+      setError(t("error.required"));
+      return null;
+    }
+    if ([contractMonths, contractWeeks, discount].some((value) => Number.isNaN(value)) || totals.invalid) {
+      setError(t("error.counts"));
+      return null;
+    }
+    return {
+      ...form,
+      quotationNo,
+      customerName: form.customerName.trim(),
+      shortCode: form.shortCode.trim(),
+      contractMonths,
+      contractWeeks,
+      discount,
+      lines: items.map((item) => ({
+        priceItemId: item.id,
+        included: selected[item.id] === true,
+        quantity: parseCount(quantities[item.id] ?? "") || 0,
+      })),
+    };
+  }
+
+  async function exportCurrent() {
+    const active = saved.find((quotation) => quotation.id === activeId);
+    const payload = draftPayload(active?.quotationNo ?? "DRAFT");
+    if (!payload) return;
+    setExporting(true);
+    setError("");
+    try {
+      await exportQuotation(payload, `${payload.quotationNo}.xlsx`);
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : t("error.export"));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function removeSaved(id: string, quotationNo: string) {
+    if (pendingDelete !== id) {
+      setPendingDelete(id);
+      return;
+    }
+    setError("");
+    try {
+      await deleteQuotation(id);
+      setSaved((current) => current.filter((quotation) => quotation.id !== id));
+      if (activeId === id) setActiveId(null);
+      setPendingDelete(null);
+      setNotice(t("notice.deleted", { number: quotationNo }));
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : t("error.delete"));
+    }
+  }
+
   async function download(id: string, quotationNo: string) {
     setError("");
     try {
@@ -363,15 +465,25 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
                   <span>{quotation.quotationDate}</span>
                   <span>{formatHkd(quotation.total)}</span>
                 </button>
-                <button
-                  type="button"
-                  className="quiet"
-                  aria-label={t("actions.excelNamed", { number: quotation.quotationNo })}
-                  onClick={() => void download(quotation.id, quotation.quotationNo)}
-                >
-                  <Icon name="excel" />
-                  <span>{t("actions.excel")}</span>
-                </button>
+                <div className="saved-actions">
+                  <button
+                    type="button"
+                    className="quiet"
+                    aria-label={t("actions.excelNamed", { number: quotation.quotationNo })}
+                    onClick={() => void download(quotation.id, quotation.quotationNo)}
+                  >
+                    <Icon name="excel" />
+                    <span>{t("actions.excel")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="quiet"
+                    onClick={() => void removeSaved(quotation.id, quotation.quotationNo)}
+                  >
+                    <Icon name="trash" />
+                    <span>{pendingDelete === quotation.id ? t("actions.confirmDelete") : t("actions.delete")}</span>
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -460,6 +572,16 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
                   return (
                     <section className="category" key={category.id}>
                       <div className="category-head">
+                        <input
+                          className="module-check"
+                          type="checkbox"
+                          checked={moduleOn[category.id] === true || category.items.some((item) => selected[item.id])}
+                          aria-label={t("actions.includeModule", { code: category.code, name: category.name })}
+                          onChange={(event) => {
+                            if (event.target.checked) turnModuleOn(category.id);
+                            else turnModuleOff(category.id);
+                          }}
+                        />
                         <div>
                           <h2>
                             {category.code}. {category.name}
@@ -469,7 +591,18 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
                         </div>
                         <strong className="subtotal">{formatHkd(subtotal)}</strong>
                       </div>
-                      {category.items.map((item) => {
+                      <div className="category-actions">
+                        <button
+                          type="button"
+                          className="quiet"
+                          aria-expanded={opened[category.id] === true}
+                          onClick={() => setOpened((current) => ({ ...current, [category.id]: current[category.id] !== true }))}
+                        >
+                          <Icon name={opened[category.id] === true ? "hide" : "show"} />
+                          <span>{opened[category.id] === true ? t("actions.hideItems") : t("actions.showItems")}</span>
+                        </button>
+                      </div>
+                      {opened[category.id] === true ? category.items.map((item) => {
                         const showGroup = item.group !== "" && item.group !== previousGroup;
                         previousGroup = item.group;
                         const checked = selected[item.id] === true;
@@ -483,9 +616,16 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
                                 type="checkbox"
                                 checked={checked}
                                 aria-label={`${item.displayCode} ${item.name}`}
-                                onChange={(event) =>
-                                  setSelected((current) => ({ ...current, [item.id]: event.target.checked }))
-                                }
+                                onChange={(event) => {
+                                  const checked = event.target.checked;
+                                  setSelected((current) => ({ ...current, [item.id]: checked }));
+                                  if (checked) {
+                                    setModuleOn((current) => ({ ...current, [category.id]: true }));
+                                    return;
+                                  }
+                                  const stillOn = category.items.some((other) => other.id !== item.id && selected[other.id]);
+                                  if (!stillOn) setModuleOn((current) => ({ ...current, [category.id]: false }));
+                                }}
                               />
                               <div className="code">{item.displayCode}</div>
                               <div className="name">
@@ -522,7 +662,7 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
                             </div>
                           </div>
                         );
-                      })}
+                      }) : null}
                     </section>
                   );
                 })}
@@ -548,10 +688,16 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
               <p>{formatHkd(totals.beforeDiscount)}</p>
               <p className="total-label">{t("summary.total")}</p>
               <p className="total">{totals.invalid ? t("summary.checkCounts") : formatHkd(totals.total)}</p>
-              <button ref={saveButtonRef} type="button" className="primary" onClick={openSave}>
-                <Icon name="save" />
-                <span>{t("actions.save")}</span>
-              </button>
+              <div className="summary-actions">
+                <button ref={saveButtonRef} type="button" className="primary" onClick={openSave}>
+                  <Icon name="save" />
+                  <span>{t("actions.save")}</span>
+                </button>
+                <button type="button" className="secondary" disabled={exporting || totals.invalid} onClick={() => void exportCurrent()}>
+                  <Icon name="export" />
+                  <span>{t("actions.export")}</span>
+                </button>
+              </div>
             </aside>
           </div>
         ) : null}
