@@ -496,6 +496,12 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .qty { flex: 0 1 7rem; min-width: 5.5rem; width: auto; }
 
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  opacity: 1;
+  height: 1.6em;
+}
+
 .basis {
   display: inline-block;
   margin-left: 8px;

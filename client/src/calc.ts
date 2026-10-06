@@ -12,6 +12,12 @@ export function parseCount(value: string): number {
   return parsed;
 }
 
+export function wholeCountInput(value: string): string | null {
+  if (value.trim() === "") return "";
+  if (!/^\d+$/.test(value)) return null;
+  return String(Number(value));
+}
+
 export function formatHkd(amount: number): string {
   return `HK$${amount.toLocaleString("en-HK")}`;
 }

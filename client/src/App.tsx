@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createQuotation, deleteQuotation, downloadQuotation, exportQuotation, fetchPriceList, fetchQuotation, fetchQuotations } from "./api";
 import { currentUser, logout } from "./auth";
-import { formatHkd, lineAmount, parseCount, todayIso } from "./calc";
+import { formatHkd, lineAmount, parseCount, todayIso, wholeCountInput } from "./calc";
 import { Icon } from "./icons";
 import { LoginPage } from "./LoginPage";
 import type { ChargeBasis, PriceCategory, PriceItem, QuotationDetail, QuotationSummary, SampleHeader } from "./types";
@@ -645,14 +645,13 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
                               {item.quantityLocked ? (
                                 <div className="locked">{item.quantityLabel}</div>
                               ) : (
-                                <input
+                                <CountInput
                                   className="qty"
-                                  aria-label={`${item.displayCode} ${t("item.count")}`}
-                                  inputMode="numeric"
+                                  ariaLabel={`${item.displayCode} ${t("item.count")}`}
                                   disabled={!checked}
                                   value={quantities[item.id] ?? ""}
-                                  onChange={(event) =>
-                                    setQuantities((current) => ({ ...current, [item.id]: event.target.value }))
+                                  onChange={(value) =>
+                                    setQuantities((current) => ({ ...current, [item.id]: value }))
                                   }
                                 />
                               )}
@@ -672,18 +671,18 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
             <aside className="summary">
               <h2>{t("summary.title")}</h2>
               <p>{t("summary.help")}</p>
-              <Field label={t("summary.months")} value={form.contractMonths} onChange={(value) => updateForm("contractMonths", value)} />
+              <Field label={t("summary.months")} number value={form.contractMonths} onChange={(value) => updateForm("contractMonths", value)} />
               <button type="button" className="secondary" onClick={() => applyBasis("month")}>
                 <Icon name="month" />
                 <span>{t("summary.applyMonths")}</span>
               </button>
-              <Field label={t("summary.weeks")} value={form.contractWeeks} onChange={(value) => updateForm("contractWeeks", value)} />
+              <Field label={t("summary.weeks")} number value={form.contractWeeks} onChange={(value) => updateForm("contractWeeks", value)} />
               <button type="button" className="secondary" onClick={() => applyBasis("week")}>
                 <Icon name="week" />
                 <span>{t("summary.applyWeeks")}</span>
               </button>
               <p>{t("summary.weekNote")}</p>
-              <Field label={t("summary.discount")} value={form.discount} onChange={(value) => updateForm("discount", value)} />
+              <Field label={t("summary.discount")} number value={form.discount} onChange={(value) => updateForm("discount", value)} />
               <p className="total-label">{t("summary.before")}</p>
               <p>{formatHkd(totals.beforeDiscount)}</p>
               <p className="total-label">{t("summary.total")}</p>
@@ -757,18 +756,62 @@ function Field({
   value,
   onChange,
   type = "text",
+  number = false,
   className,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
+  number?: boolean;
   className?: string;
 }) {
   return (
     <label className={className}>
       <span>{label}</span>
-      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+      {number ? (
+        <CountInput value={value} onChange={onChange} />
+      ) : (
+        <input type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+      )}
     </label>
+  );
+}
+
+function CountInput({
+  value,
+  onChange,
+  disabled = false,
+  className,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  className?: string;
+  ariaLabel?: string;
+}) {
+  return (
+    <input
+      className={className}
+      type="number"
+      inputMode="numeric"
+      min={0}
+      step={1}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      value={value}
+      onKeyDown={(event) => {
+        if (["e", "E", "+", "-", "."].includes(event.key)) event.preventDefault();
+      }}
+      onChange={(event) => {
+        const next = wholeCountInput(event.target.value);
+        if (next === null) {
+          event.target.value = value;
+          return;
+        }
+        onChange(next);
+      }}
+    />
   );
 }
