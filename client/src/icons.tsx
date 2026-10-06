@@ -13,7 +13,11 @@ type IconName =
   | "trash"
   | "export"
   | "show"
-  | "hide";
+  | "hide"
+  | "adjust"
+  | "grip"
+  | "left"
+  | "right";
 
 export function Icon({ name }: { name: IconName }) {
   return (
@@ -115,4 +119,19 @@ const paths: Record<IconName, ReactNode> = {
       <path d="M4 10 8 6 12 10" />
     </>
   ),
+  adjust: (
+    <>
+      <path d="M9.5 2.5 13 6l-7 7H2.5V9.5z" />
+      <path d="M8 4 11.5 7.5" />
+    </>
+  ),
+  grip: (
+    <>
+      <path d="M5 4v8" />
+      <path d="M8 4v8" />
+      <path d="M11 4v8" />
+    </>
+  ),
+  left: <path d="M10 3.5 5.5 8 10 12.5" />,
+  right: <path d="M6 3.5 10.5 8 6 12.5" />,
 };

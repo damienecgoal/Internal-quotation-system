@@ -154,3 +154,62 @@ export function asPricingType(value: string): PricingType {
   if (value === "calculated" || value === "rate_only") return value;
   throw new Error(`Unknown pricing type ${value}`);
 }
+
+export type SharedItemInput = {
+  id: string;
+  displayCode: string;
+  name: string;
+  chargeBasis: ChargeBasis;
+  unitPrice: number;
+  group: string;
+  notes: string[];
+};
+
+export function validateSharedItems(
+  body: unknown,
+  existingIds: string[],
+  noteCapacity: Record<string, number>,
+): { ok: true; value: SharedItemInput[] } | { ok: false; message: string } {
+  if (!isRecord(body) || !Array.isArray(body.items)) {
+    return { ok: false, message: "Price list body must include items." };
+  }
+  const seen = new Set<string>();
+  const items: SharedItemInput[] = [];
+  for (const entry of body.items) {
+    if (!isRecord(entry) || typeof entry.id !== "string" || !existingIds.includes(entry.id)) {
+      return { ok: false, message: "Each item must be an existing shared item." };
+    }
+    if (seen.has(entry.id)) return { ok: false, message: `Duplicate item ${entry.id}.` };
+    seen.add(entry.id);
+    const name = requiredText(entry, "name");
+    if (!name) return { ok: false, message: "Each item needs a name." };
+    const displayCode = optionalText(entry, "displayCode");
+    if (displayCode == null) return { ok: false, message: "Each item code must be text." };
+    const group = optionalText(entry, "group");
+    if (group == null) return { ok: false, message: "Each item group must be text." };
+    if (entry.chargeBasis !== "unit" && entry.chargeBasis !== "month" && entry.chargeBasis !== "week") {
+      return { ok: false, message: "Each item needs a charge basis of unit, month, or week." };
+    }
+    const unitPrice = wholeNumber(entry.unitPrice);
+    if (unitPrice == null) return { ok: false, message: "Each unit price must be a whole number or zero." };
+    if (!Array.isArray(entry.notes) || entry.notes.some((note) => typeof note !== "string")) {
+      return { ok: false, message: "Each item's sub-items must be text." };
+    }
+    const notes = entry.notes.map((note) => note.trim()).filter((note) => note !== "");
+    const capacity = noteCapacity[entry.id] ?? 0;
+    if (notes.length > capacity) {
+      return { ok: false, message: `${displayCode || entry.id} can hold ${capacity} sub-items.` };
+    }
+    items.push({
+      id: entry.id,
+      displayCode,
+      name,
+      chargeBasis: entry.chargeBasis,
+      unitPrice,
+      group,
+      notes,
+    });
+  }
+  if (seen.size !== existingIds.length) return { ok: false, message: "Save every shared item together." };
+  return { ok: true, value: items };
+}

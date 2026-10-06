@@ -1,8 +1,9 @@
 import { formatQuotationNo, priceQuotation } from "./calc.ts";
 import type { ChargeBasis, PricingType } from "./catalog.ts";
-import { getSql, listCategories, listItems } from "./db.ts";
-import type { CreateQuotationInput } from "./validate.ts";
+import { getSql, listCategories, listItems, updateSharedItems } from "./db.ts";
+import type { CreateQuotationInput, SharedItemInput } from "./validate.ts";
 import { asChargeBasis, asPricingType } from "./validate.ts";
+import { NOTE_SLOTS } from "./note-slots.ts";
 
 export type ApiItem = {
   id: string;
@@ -18,6 +19,7 @@ export type ApiItem = {
   quantityLabel: string;
   sampleQuantity: number;
   sortOrder: number;
+  noteCapacity: number;
 };
 
 export type QuotationSummary = {
@@ -70,6 +72,30 @@ function parseNotes(value: string): string[] {
   }
 }
 
+export async function sharedCatalogText() {
+  return (await listItems()).map((item) => ({
+    id: item.id,
+    displayCode: item.displayCode,
+    name: item.name,
+    notes: parseNotes(item.notes),
+  }));
+}
+
+export async function saveSharedItems(items: SharedItemInput[]) {
+  const existing = await listItems();
+  const categoryOf = new Map(existing.map((item) => [item.id, item.categoryId]));
+  const counters = new Map<string, number>();
+  await updateSharedItems(
+    items.map((item) => {
+      const categoryId = categoryOf.get(item.id) ?? "";
+      const sortOrder = (counters.get(categoryId) ?? 0) + 1;
+      counters.set(categoryId, sortOrder);
+      return { ...item, sortOrder };
+    }),
+  );
+  return getPriceList();
+}
+
 export async function getPriceList(): Promise<{ categories: Array<Awaited<ReturnType<typeof listCategories>>[number] & { items: ApiItem[] }> }> {
   const categories = await listCategories();
   const items = (await listItems()).map((item) => ({
@@ -86,6 +112,7 @@ export async function getPriceList(): Promise<{ categories: Array<Awaited<Return
     quantityLabel: item.quantityLabel,
     sampleQuantity: item.sampleQuantity,
     sortOrder: item.sortOrder,
+    noteCapacity: NOTE_SLOTS[item.id]?.length ?? 0,
   }));
   return {
     categories: categories.map((category) => ({

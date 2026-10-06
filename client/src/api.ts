@@ -33,6 +33,14 @@ export function deleteQuotation(id: string) {
   return request<{ ok: boolean }>(apiUrl(`/api/quotations/${id}`), { method: "DELETE" });
 }
 
+export function savePriceList(items: unknown[]) {
+  return request<{ categories: PriceCategory[]; sample: SampleHeader }>(apiUrl("/api/price-items"), {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ items }),
+  });
+}
+
 export function createQuotation(payload: unknown) {
   return request<{ quotation: QuotationDetail }>(apiUrl("/api/quotations"), {
     method: "POST",

@@ -11,6 +11,7 @@ import {
 } from "./catalog.ts";
 import type { PricedLine } from "./calc.ts";
 import { excelSerial } from "./calc.ts";
+import { NOTE_SLOTS } from "./note-slots.ts";
 
 function templatePath(): string {
   return fileURLToPath(new URL("../templates/quotation.xlsx", import.meta.url));
@@ -81,7 +82,42 @@ function writeFormulaResult(
   cell.value = result;
 }
 
-export async function buildQuotationWorkbook(quote: WorkbookQuotation): Promise<Uint8Array> {
+export type CatalogText = {
+  id: string;
+  displayCode: string;
+  name: string;
+  notes: string[];
+};
+
+function plainCell(value: ExcelJS.CellValue): string {
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object" && "result" in value && typeof value.result === "string") return value.result.trim();
+  return "";
+}
+
+function writeSharedText(sheet: ExcelJS.Worksheet, texts: CatalogText[]) {
+  const byId = new Map(texts.map((text) => [text.id, text]));
+  for (const spec of ITEMS) {
+    const text = byId.get(spec.id);
+    if (!text) continue;
+    const row = Number(spec.cells.amount.replace(/\D/g, ""));
+    const codeCell = sheet.getCell(`B${row}`);
+    const currentCode = plainCell(codeCell.value);
+    if (currentCode === "" || currentCode === spec.displayCode) codeCell.value = text.displayCode;
+    const nameColumns = ["C", "D", "E"] as const;
+    const currentNames = nameColumns.map((column) => plainCell(sheet.getCell(`${column}${row}`).value));
+    nameColumns.forEach((column, index) => {
+      if (index === 0 || currentNames[index] === spec.name) sheet.getCell(`${column}${row}`).value = text.name;
+    });
+    for (const [index, noteRow] of (NOTE_SLOTS[spec.id] ?? []).entries()) {
+      const note = text.notes[index] ?? "";
+      const code = plainCell(sheet.getCell(`B${noteRow}`).value);
+      sheet.getCell(`C${noteRow}`).value = code !== "" && note.startsWith(`${code} `) ? note.slice(code.length + 1) : note;
+    }
+  }
+}
+
+export async function buildQuotationWorkbook(quote: WorkbookQuotation, texts: CatalogText[] = []): Promise<Uint8Array> {
   const workbook = new ExcelJS.Workbook();
   const template = getContext()?.template;
   if (template) {
@@ -94,6 +130,7 @@ export async function buildQuotationWorkbook(quote: WorkbookQuotation): Promise<
   }
   const sheet = workbook.getWorksheet("Quotation");
   if (!sheet) throw new Error("Quotation sheet is missing from the template.");
+  if (texts.length > 0) writeSharedText(sheet, texts);
 
   sheet.getCell("C7").value = quote.customerName;
   sheet.getCell("C8").value = quote.attn;

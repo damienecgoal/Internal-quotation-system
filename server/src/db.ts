@@ -146,3 +146,26 @@ export async function listItems(): Promise<ItemRow[]> {
      ORDER BY sort_order`,
   );
 }
+
+export async function updateSharedItems(
+  items: Array<{
+    id: string;
+    displayCode: string;
+    name: string;
+    chargeBasis: string;
+    unitPrice: number;
+    group: string;
+    notes: string[];
+    sortOrder: number;
+  }>,
+): Promise<void> {
+  const sql = getSql();
+  for (const item of items) {
+    await sql.run(
+      `UPDATE price_items
+       SET display_code = ?, name = ?, charge_basis = ?, unit_price = ?, group_label = ?, notes = ?, sort_order = ?
+       WHERE id = ?`,
+      [item.displayCode, item.name, item.chargeBasis, item.unitPrice, item.group, JSON.stringify(item.notes), item.sortOrder, item.id],
+    );
+  }
+}

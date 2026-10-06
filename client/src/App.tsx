@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createQuotation, deleteQuotation, downloadQuotation, exportQuotation, fetchPriceList, fetchQuotation, fetchQuotations } from "./api";
+import { AdjustPage } from "./AdjustPage";
 import { currentUser, logout } from "./auth";
 import { formatHkd, lineAmount, parseCount, todayIso, wholeCountInput } from "./calc";
 import { Icon } from "./icons";
@@ -76,6 +77,8 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState<QuotationSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState<"quote" | "adjust">("quote");
+  const [navOpen, setNavOpen] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [error, setError] = useState("");
@@ -440,26 +443,33 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
   }
 
   return (
-    <div className="shell">
+    <div className={navOpen ? "shell" : "shell nav-closed"}>
       <nav className="nav">
+        <div className="nav-main">
         <div className="nav-body">
           <div className="nav-brand">
             <strong>{t("title")}</strong>
           </div>
-          <button type="button" className="secondary" onClick={() => { setForm(emptyForm()); blankLines(); setNotice(""); }}>
+          <div className="nav-actions">
+          <button type="button" className="secondary icon-only tip" aria-label={t("newQuotation")} onClick={() => { setPage("quote"); setForm(emptyForm()); blankLines(); setNotice(""); }}>
             <Icon name="plus" />
-            <span>{t("newQuotation")}</span>
+            <span className="tip-pop">{t("newQuotation")}</span>
           </button>
-          <button type="button" className="secondary" onClick={loadSample}>
+          <button type="button" className="secondary icon-only tip" aria-label={t("nav.loadSample")} onClick={() => { setPage("quote"); loadSample(); }}>
             <Icon name="sample" />
-            <span>{t("nav.loadSample")}</span>
+            <span className="tip-pop">{t("nav.loadSample")}</span>
           </button>
+          <button type="button" className={page === "adjust" ? "secondary icon-only tip active" : "secondary icon-only tip"} aria-label={t("nav.adjust")} onClick={() => { setPage("adjust"); setError(""); }}>
+            <Icon name="adjust" />
+            <span className="tip-pop">{t("nav.adjust")}</span>
+          </button>
+          </div>
           <div className="saved-list">
             <h2>{t("nav.saved")}</h2>
             {saved.length === 0 ? <p>{t("nav.empty")}</p> : null}
             {saved.map((quotation) => (
               <div className={quotation.id === activeId ? "saved-row active" : "saved-row"} key={quotation.id}>
-                <button type="button" className="saved-open" onClick={() => void openSaved(quotation.id)}>
+                <button type="button" className="saved-open" onClick={() => { setPage("quote"); void openSaved(quotation.id); }}>
                   <strong>{quotation.quotationNo}</strong>
                   <span>{quotation.customerName}</span>
                   <span>{quotation.quotationDate}</span>
@@ -506,9 +516,22 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
             </button>
           </div>
         </div>
+        </div>
+        <div className="nav-rail">
+          <button
+            type="button"
+            className="quiet icon-only tip"
+            aria-label={navOpen ? t("nav.hide") : t("nav.show")}
+            onClick={() => setNavOpen((open) => !open)}
+          >
+            <Icon name={navOpen ? "left" : "right"} />
+            <span className="tip-pop">{navOpen ? t("nav.hide") : t("nav.show")}</span>
+          </button>
+        </div>
       </nav>
 
       <main className="workspace">
+        {page === "quote" ? (
         <header className="masthead">
           <div>
             <h1>{t("title")}</h1>
@@ -519,12 +542,13 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
             <strong>{categories.length === 0 || totals.invalid ? "—" : formatHkd(totals.total)}</strong>
           </div>
         </header>
+        ) : null}
 
         {error ? <p className="banner error">{error}</p> : null}
         {notice ? <p className="banner ok">{notice}</p> : null}
         {loading ? <p>{t("loading")}</p> : null}
 
-        {!loading && categories.length > 0 ? (
+        {!loading && categories.length > 0 && page === "quote" ? (
           <div className="layout">
             <section>
               <form
@@ -582,15 +606,13 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
                             else turnModuleOff(category.id);
                           }}
                         />
-                        <div>
-                          <h2>
-                            {category.code}. {category.name}
-                          </h2>
-                          {category.description ? <p>{category.description}</p> : null}
-                          {category.productLine ? <p className="product">{category.productLine}</p> : null}
-                        </div>
+                        <h2>
+                          {category.code}. {category.name}
+                        </h2>
                         <strong className="subtotal">{formatHkd(subtotal)}</strong>
                       </div>
+                      {category.description ? <p>{category.description}</p> : null}
+                      {category.productLine ? <p className="product">{category.productLine}</p> : null}
                       <div className="category-actions">
                         <button
                           type="button"
@@ -699,6 +721,16 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
               </div>
             </aside>
           </div>
+        ) : null}
+        {!loading && categories.length > 0 && page === "adjust" ? (
+          <AdjustPage
+            categories={categories}
+            onCancel={() => setPage("quote")}
+            onSaved={(next) => {
+              setCategories(next);
+              setNotice(t("notice.priceList"));
+            }}
+          />
         ) : null}
         {saveOpen ? (
           <div

@@ -3,8 +3,9 @@ import { cors } from "hono/cors";
 import { SFK_SAMPLE } from "./catalog.ts";
 import { ensureReady, listItems } from "./db.ts";
 import { buildQuotationWorkbook } from "./excel.ts";
-import { createQuotation, deleteQuotation, getPriceList, getQuotation, listQuotations, priceDraft } from "./quotations.ts";
-import { validateCreate } from "./validate.ts";
+import { createQuotation, deleteQuotation, getPriceList, getQuotation, listQuotations, priceDraft, saveSharedItems, sharedCatalogText } from "./quotations.ts";
+import { validateCreate, validateSharedItems } from "./validate.ts";
+import { NOTE_SLOTS } from "./note-slots.ts";
 
 const defaultOrigins = [
   "http://localhost:5173",
@@ -47,6 +48,24 @@ app.get("/api/health", (c) => {
 
 app.get("/api/price-list", async (c) => {
   const { categories } = await getPriceList();
+  return c.json({ ok: true, categories, sample: SFK_SAMPLE });
+});
+
+app.put("/api/price-items", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: "invalid_json", message: "Request body must be JSON." }, 400);
+  }
+  const existing = await listItems();
+  const parsed = validateSharedItems(
+    body,
+    existing.map((item) => item.id),
+    Object.fromEntries(existing.map((item) => [item.id, NOTE_SLOTS[item.id]?.length ?? 0])),
+  );
+  if (!parsed.ok) return c.json({ ok: false, error: "validation", message: parsed.message }, 400);
+  const { categories } = await saveSharedItems(parsed.value);
   return c.json({ ok: true, categories, sample: SFK_SAMPLE });
 });
 
@@ -93,7 +112,7 @@ app.post("/api/quotations/excel", async (c) => {
     quotationNo: requestedNo || "DRAFT",
     lines: priced.lines,
     total: priced.total,
-  });
+  }, await sharedCatalogText());
   c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   c.header("Content-Disposition", 'attachment; filename="quotation.xlsx"');
   return c.body(new Uint8Array(file));
@@ -102,7 +121,7 @@ app.post("/api/quotations/excel", async (c) => {
 app.get("/api/quotations/:id/excel", async (c) => {
   const quotation = await getQuotation(c.req.param("id"));
   if (!quotation) return c.json({ ok: false, error: "not_found", message: "Quotation not found." }, 404);
-  const file = await buildQuotationWorkbook(quotation);
+  const file = await buildQuotationWorkbook(quotation, await sharedCatalogText());
   c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   c.header("Content-Disposition", `attachment; filename="${quotation.quotationNo}.xlsx"`);
   return c.body(new Uint8Array(file));

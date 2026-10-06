@@ -15,6 +15,7 @@ export type PriceItem = {
   quantityLabel: string;
   sampleQuantity: number;
   sortOrder: number;
+  noteCapacity: number;
 };
 
 export type PriceCategory = {

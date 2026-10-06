@@ -69,4 +69,39 @@ test("saving the SFK sample numbers quotations and returns the workbook total", 
   assert.equal(removed.status, 200);
   const afterDelete = (await (await app.request("/api/quotations")).json()) as { quotations: unknown[] };
   assert.equal(afterDelete.quotations.length, 1);
+
+  const current = (await (await app.request("/api/price-list")).json()) as {
+    categories: Array<{ items: Array<{ id: string; displayCode: string; name: string; chargeBasis: string; unitPrice: number; group: string; notes: string[]; noteCapacity: number }> }>;
+  };
+  const items = current.categories.flatMap((category) => category.items);
+  const target = items.find((item) => item.id === "a1");
+  assert.ok(target);
+  const savedList = await app.request("/api/price-items", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      items: items.map((item) =>
+        item.id === "a1"
+          ? { ...item, name: "Platform setup", unitPrice: 0, notes: ["Login user Setup"] }
+          : item,
+      ),
+    }),
+  });
+  assert.equal(savedList.status, 200);
+  const reloaded = (await (await app.request("/api/price-list")).json()) as {
+    categories: Array<{ items: Array<{ id: string; name: string; unitPrice: number; notes: string[] }> }>;
+  };
+  const updated = reloaded.categories.flatMap((category) => category.items).find((item) => item.id === "a1");
+  assert.equal(updated?.name, "Platform setup");
+  assert.equal(updated?.unitPrice, 0);
+  assert.deepEqual(updated?.notes, ["Login user Setup"]);
+
+  const tooMany = await app.request("/api/price-items", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      items: items.map((item) => (item.id === "f2-camera" ? { ...item, notes: ["extra"] } : item)),
+    }),
+  });
+  assert.equal(tooMany.status, 400);
 });
