@@ -1,5 +1,5 @@
-export type ChargeBasis = "unit" | "month" | "week";
-export type PricingType = "calculated" | "rate_only";
+export type ChargeBasis = "unit" | "month" | "week" | "one_off";
+export type PricingType = "calculated" | "rate_only" | "included";
 
 export type PriceItem = {
   id: string;
@@ -58,6 +58,7 @@ export type QuotationSummary = {
 export type QuotationLine = {
   priceItemId: string;
   quantity: number;
+  unitPrice: number;
   included: boolean;
 };
 

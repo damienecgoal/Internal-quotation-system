@@ -217,6 +217,7 @@ export function AdjustPage({
                       <option value="unit">{t("basis.unit")}</option>
                       <option value="month">{t("basis.month")}</option>
                       <option value="week">{t("basis.week")}</option>
+                      <option value="one_off">{t("basis.one_off")}</option>
                     </select>
                   </label>
                   <label className="span-2">

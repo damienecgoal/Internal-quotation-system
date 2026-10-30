@@ -55,6 +55,7 @@ export function priceQuotation(
   quantities: Record<string, number>,
   discount: number,
   included?: Record<string, boolean>,
+  unitPrices?: Record<string, number>,
 ): {
   lines: PricedLine[];
   categorySubtotals: { categoryId: string; subtotal: number }[];
@@ -64,15 +65,16 @@ export function priceQuotation(
   const lines = items.map((item) => {
     const quantity = item.quantityLocked ? 0 : (quantities[item.id] ?? 0);
     const selected = included ? included[item.id] === true : true;
+    const unitPrice = unitPrices?.[item.id] ?? item.unitPrice;
     return {
       priceItemId: item.id,
       categoryId: item.categoryId,
       quantity,
-      unitPrice: item.unitPrice,
+      unitPrice,
       chargeBasis: item.chargeBasis,
       pricingType: item.pricingType,
       included: selected,
-      amount: selected ? lineAmount(item, quantity) : 0,
+      amount: selected ? lineAmount({ pricingType: item.pricingType, unitPrice }, quantity) : 0,
     };
   });
   const categorySubtotals = categories.map((category) => ({

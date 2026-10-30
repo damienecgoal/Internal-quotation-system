@@ -36,7 +36,7 @@ test("saving the SFK sample numbers quotations and returns the workbook total", 
     quotation: { id: string; quotationNo: string; total: number };
   };
   assert.equal(first.quotation.quotationNo, "KR-30032026SFK-011");
-  assert.equal(first.quotation.total, 2_040_700);
+  assert.equal(first.quotation.total, 297_500);
 
   const secondResponse = await app.request("/api/quotations", {
     method: "POST",
@@ -61,9 +61,9 @@ test("saving the SFK sample numbers quotations and returns the workbook total", 
   assert.match(excel.headers.get("content-type") ?? "", /spreadsheetml/);
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(Buffer.from(await excel.arrayBuffer()) as unknown as ExcelJS.Buffer);
-  const total = workbook.getWorksheet("Quotation")?.getCell("K297").value;
+  const total = workbook.getWorksheet("Quotation")?.getCell("K256").value;
   assert.ok(total && typeof total === "object" && "result" in total);
-  assert.equal(total.result, 2_040_700);
+  assert.equal(total.result, 297_500);
 
   const removed = await app.request(`/api/quotations/${second.quotation.id}`, { method: "DELETE" });
   assert.equal(removed.status, 200);
@@ -100,7 +100,7 @@ test("saving the SFK sample numbers quotations and returns the workbook total", 
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      items: items.map((item) => (item.id === "f2-camera" ? { ...item, notes: ["extra"] } : item)),
+      items: items.map((item) => (item.id === "a2" ? { ...item, notes: ["extra"] } : item)),
     }),
   });
   assert.equal(tooMany.status, 400);

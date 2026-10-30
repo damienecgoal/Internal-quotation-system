@@ -1,7 +1,7 @@
 export const en = {
   company: "Keen Rich Enterprise Limited",
   title: "Internal quotation",
-  lede: "Tick the items you need. After a tick, edit the count. Shared names, prices, and sub-items are changed under Adjust items.",
+  lede: "Tick the items you need. A ticked count starts at 0, so enter at least 1. Double-click an item to change its fee on this quotation. Shared names and the price list are changed under Adjust items.",
   totalLabel: "Total contract value",
   loading: "Loading the price list…",
   newQuotation: "New quotation",
@@ -59,7 +59,7 @@ export const en = {
   },
   summary: {
     title: "Count",
-    help: "Apply a contract length to the ticked monthly or weekly items. Unit counts stay on each ticked line.",
+    help: "Apply a contract length to the ticked monthly or weekly items. Unit and one-off counts stay on each ticked line.",
     months: "Contract months",
     weeks: "Contract weeks",
     applyMonths: "Apply to ticked month items",
@@ -72,12 +72,17 @@ export const en = {
   },
   item: {
     rateOnly: "Rate only",
+    included: "Included",
     count: "Count",
+    fee: "Fee",
+    editFee: "Double-click to change this fee",
+    needCount: "Enter at least 1",
   },
   basis: {
     unit: "unit",
     month: "month",
     week: "week",
+    one_off: "one off",
   },
   notice: {
     sample: "Loaded the SFK sample. Only items with a sample count are ticked.",
@@ -96,6 +101,8 @@ export const en = {
     open: "Could not open that quotation.",
     delete: "Could not delete that quotation.",
     export: "Could not export the Excel file.",
+    missing: "Fill in the missing information: {{list}}.",
+    itemCount: "{{code}} count",
     generic: "Could not save the quotation.",
     priceList: "Could not save the price list.",
   },

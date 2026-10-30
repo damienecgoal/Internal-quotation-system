@@ -68,6 +68,8 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
   const [sample, setSample] = useState<SampleHeader | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [feeEdits, setFeeEdits] = useState<Record<string, string>>({});
+  const [editingFeeId, setEditingFeeId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const [moduleOn, setModuleOn] = useState<Record<string, boolean>>({});
@@ -78,13 +80,15 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
   const [lastSaved, setLastSaved] = useState<QuotationSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState<"quote" | "adjust">("quote");
-  const [navOpen, setNavOpen] = useState(true);
+  const [navOpen, setNavOpen] = useState(() => window.matchMedia("(min-width: 981px)").matches);
+  const drawerToggleRef = useRef<HTMLButtonElement>(null);
   const [saving, setSaving] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const saveButtonRef = useRef<HTMLButtonElement>(null);
   const widgetRef = useRef<HTMLDivElement>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
   const saveWasOpen = useRef(false);
 
   useEffect(() => {
@@ -117,6 +121,13 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
 
   const items = useMemo(() => allItems(categories), [categories]);
 
+  function lineFee(item: PriceItem): number {
+    const raw = feeEdits[item.id];
+    if (raw == null || raw.trim() === "") return item.unitPrice;
+    const parsed = parseCount(raw);
+    return Number.isNaN(parsed) ? item.unitPrice : parsed;
+  }
+
   const totals = useMemo(() => {
     const discount = parseCount(form.discount);
     const categoryTotals = categories.map((category) => {
@@ -124,14 +135,22 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
         if (!selected[item.id]) return sum;
         const quantity = parseCount(quantities[item.id] ?? "");
         if (Number.isNaN(quantity)) return sum;
-        return sum + lineAmount(item.pricingType, item.unitPrice, quantity);
+        const rawFee = feeEdits[item.id];
+        const fee = rawFee == null || rawFee.trim() === "" ? item.unitPrice : parseCount(rawFee);
+        if (Number.isNaN(fee)) return sum;
+        return sum + lineAmount(item.pricingType, fee, quantity);
       }, 0);
       return { id: category.id, subtotal };
     });
     const beforeDiscount = categoryTotals.reduce((sum, category) => sum + category.subtotal, 0);
     const invalid =
       Number.isNaN(discount) ||
-      items.some((item) => selected[item.id] && Number.isNaN(parseCount(quantities[item.id] ?? "")));
+      items.some((item) => {
+        if (!selected[item.id]) return false;
+        const quantity = parseCount(quantities[item.id] ?? "");
+        if (Number.isNaN(quantity)) return true;
+        return !item.quantityLocked && quantity < 1;
+      });
     return {
       categoryTotals,
       beforeDiscount,
@@ -139,10 +158,37 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
       total: beforeDiscount - (Number.isNaN(discount) ? 0 : discount),
       invalid,
     };
-  }, [categories, form.discount, items, quantities, selected]);
+  }, [categories, feeEdits, form.discount, items, quantities, selected]);
 
   function updateForm(key: keyof FormState, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function missingLabels(): string[] {
+    const missing: string[] = [];
+    if (form.customerName.trim() === "") missing.push(t("fields.customer"));
+    if (form.shortCode.trim() === "") missing.push(t("fields.shortCode"));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.quotationDate)) missing.push(t("fields.date"));
+    if (Number.isNaN(parseCount(form.contractMonths))) missing.push(t("summary.months"));
+    if (Number.isNaN(parseCount(form.contractWeeks))) missing.push(t("summary.weeks"));
+    if (Number.isNaN(parseCount(form.discount))) missing.push(t("summary.discount"));
+    for (const item of items) {
+      if (selected[item.id] !== true || item.quantityLocked) continue;
+      const quantity = parseCount(quantities[item.id] ?? "");
+      if (Number.isNaN(quantity) || quantity < 1) {
+        missing.push(t("error.itemCount", { code: item.displayCode || item.name }));
+      }
+    }
+    return missing;
+  }
+
+  function reportMissing(): boolean {
+    const missing = missingLabels();
+    if (missing.length === 0) return false;
+    const separator = i18n.language.startsWith("zh") ? "、" : ", ";
+    setNotice("");
+    setError(t("error.missing", { list: missing.join(separator) }));
+    return true;
   }
 
   function blankLines() {
@@ -154,6 +200,8 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
     }
     setQuantities(nextQty);
     setSelected(nextSelected);
+    setFeeEdits({});
+    setEditingFeeId(null);
     setOpened({});
     setModuleOn({});
     setActiveId(null);
@@ -190,6 +238,14 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
   function turnModuleOn(categoryId: string) {
     setModuleOn((current) => ({ ...current, [categoryId]: true }));
     setOpened((current) => ({ ...current, [categoryId]: true }));
+  }
+
+  function startFeeEdit(item: PriceItem) {
+    setFeeEdits((current) => ({
+      ...current,
+      [item.id]: current[item.id] ?? String(item.unitPrice),
+    }));
+    setEditingFeeId(item.id);
   }
 
   function applyBasis(basis: ChargeBasis) {
@@ -240,6 +296,8 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
     }
     setQuantities(nextQty);
     setSelected(nextSelected);
+    setFeeEdits({});
+    setEditingFeeId(null);
     openUsedCategories(nextSelected);
     setActiveId(null);
     setError("");
@@ -266,16 +324,20 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
     });
     const nextQty: Record<string, string> = {};
     const nextSelected: Record<string, boolean> = {};
+    const nextFees: Record<string, string> = {};
     for (const item of items) {
       nextQty[item.id] = "";
       nextSelected[item.id] = false;
     }
     for (const line of quotation.lines) {
       nextSelected[line.priceItemId] = line.included;
-      nextQty[line.priceItemId] = line.quantity > 0 ? String(line.quantity) : "";
+      nextQty[line.priceItemId] = String(line.quantity);
+      nextFees[line.priceItemId] = String(line.unitPrice);
     }
     setQuantities(nextQty);
     setSelected(nextSelected);
+    setFeeEdits(nextFees);
+    setEditingFeeId(null);
     openUsedCategories(nextSelected);
     setActiveId(quotation.id);
     setLastSaved(quotation);
@@ -336,14 +398,7 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
     const contractMonths = parseCount(form.contractMonths);
     const contractWeeks = parseCount(form.contractWeeks);
     const discount = parseCount(form.discount);
-    if (form.customerName.trim() === "" || form.shortCode.trim() === "") {
-      setError(t("error.required"));
-      return;
-    }
-    if ([contractMonths, contractWeeks, discount].some((value) => Number.isNaN(value)) || totals.invalid) {
-      setError(t("error.counts"));
-      return;
-    }
+    if (reportMissing()) return;
     setSaving(true);
     setError("");
     try {
@@ -357,7 +412,8 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
         lines: items.map((item) => ({
           priceItemId: item.id,
           included: selected[item.id] === true,
-          quantity: selected[item.id] ? parseCount(quantities[item.id] ?? "") || 0 : parseCount(quantities[item.id] ?? "") || 0,
+          quantity: parseCount(quantities[item.id] ?? "") || 0,
+          unitPrice: lineFee(item),
         })),
       });
       setLastSaved(result.quotation);
@@ -377,14 +433,7 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
     const contractMonths = parseCount(form.contractMonths);
     const contractWeeks = parseCount(form.contractWeeks);
     const discount = parseCount(form.discount);
-    if (form.customerName.trim() === "" || form.shortCode.trim() === "") {
-      setError(t("error.required"));
-      return null;
-    }
-    if ([contractMonths, contractWeeks, discount].some((value) => Number.isNaN(value)) || totals.invalid) {
-      setError(t("error.counts"));
-      return null;
-    }
+    if (reportMissing()) return null;
     return {
       ...form,
       quotationNo,
@@ -397,6 +446,7 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
         priceItemId: item.id,
         included: selected[item.id] === true,
         quantity: parseCount(quantities[item.id] ?? "") || 0,
+        unitPrice: lineFee(item),
       })),
     };
   }
@@ -442,24 +492,70 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
     }
   }
 
+  useEffect(() => {
+    if (!error) return;
+    errorRef.current?.scrollIntoView({ block: "nearest" });
+  }, [error]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 981px)");
+    function onChange() {
+      setNavOpen(media.matches);
+    }
+    onChange();
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!navOpen) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setNavOpen(false);
+        drawerToggleRef.current?.focus();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [navOpen]);
+
+  function closeIfPhone() {
+    if (window.matchMedia("(max-width: 980px)").matches) setNavOpen(false);
+  }
+
   return (
     <div className={navOpen ? "shell" : "shell nav-closed"}>
-      <nav className="nav">
+      <button
+        ref={drawerToggleRef}
+        type="button"
+        className="drawer-toggle quiet icon-only tip"
+        aria-expanded={navOpen}
+        aria-controls="quotation-drawer"
+        aria-label={navOpen ? t("nav.hide") : t("nav.show")}
+        onClick={() => setNavOpen((open) => !open)}
+      >
+        <Icon name={navOpen ? "left" : "right"} />
+        <span className="tip-pop">{navOpen ? t("nav.hide") : t("nav.show")}</span>
+      </button>
+      {navOpen ? (
+        <button type="button" className="nav-backdrop" aria-label={t("nav.hide")} onClick={() => { setNavOpen(false); drawerToggleRef.current?.focus(); }} />
+      ) : null}
+      <nav className="nav" id="quotation-drawer">
         <div className="nav-main">
         <div className="nav-body">
           <div className="nav-brand">
             <strong>{t("title")}</strong>
           </div>
           <div className="nav-actions">
-          <button type="button" className="secondary icon-only tip" aria-label={t("newQuotation")} onClick={() => { setPage("quote"); setForm(emptyForm()); blankLines(); setNotice(""); }}>
+          <button type="button" className="secondary icon-only tip" aria-label={t("newQuotation")} onClick={() => { setPage("quote"); setForm(emptyForm()); blankLines(); setError(""); setNotice(""); closeIfPhone(); }}>
             <Icon name="plus" />
             <span className="tip-pop">{t("newQuotation")}</span>
           </button>
-          <button type="button" className="secondary icon-only tip" aria-label={t("nav.loadSample")} onClick={() => { setPage("quote"); loadSample(); }}>
+          <button type="button" className="secondary icon-only tip" aria-label={t("nav.loadSample")} onClick={() => { setPage("quote"); loadSample(); closeIfPhone(); }}>
             <Icon name="sample" />
             <span className="tip-pop">{t("nav.loadSample")}</span>
           </button>
-          <button type="button" className={page === "adjust" ? "secondary icon-only tip active" : "secondary icon-only tip"} aria-label={t("nav.adjust")} onClick={() => { setPage("adjust"); setError(""); }}>
+          <button type="button" className={page === "adjust" ? "secondary icon-only tip active" : "secondary icon-only tip"} aria-label={t("nav.adjust")} onClick={() => { setPage("adjust"); setError(""); closeIfPhone(); }}>
             <Icon name="adjust" />
             <span className="tip-pop">{t("nav.adjust")}</span>
           </button>
@@ -467,9 +563,10 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
           <div className="saved-list">
             <h2>{t("nav.saved")}</h2>
             {saved.length === 0 ? <p>{t("nav.empty")}</p> : null}
+            <div className="saved-scroll">
             {saved.map((quotation) => (
               <div className={quotation.id === activeId ? "saved-row active" : "saved-row"} key={quotation.id}>
-                <button type="button" className="saved-open" onClick={() => { setPage("quote"); void openSaved(quotation.id); }}>
+                <button type="button" className="saved-open" onClick={() => { setPage("quote"); void openSaved(quotation.id); closeIfPhone(); }}>
                   <strong>{quotation.quotationNo}</strong>
                   <span>{quotation.customerName}</span>
                   <span>{quotation.quotationDate}</span>
@@ -496,6 +593,7 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
                 </div>
               </div>
             ))}
+            </div>
           </div>
         </div>
         <div className="nav-foot">
@@ -517,17 +615,6 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
           </div>
         </div>
         </div>
-        <div className="nav-rail">
-          <button
-            type="button"
-            className="quiet icon-only tip"
-            aria-label={navOpen ? t("nav.hide") : t("nav.show")}
-            onClick={() => setNavOpen((open) => !open)}
-          >
-            <Icon name={navOpen ? "left" : "right"} />
-            <span className="tip-pop">{navOpen ? t("nav.hide") : t("nav.show")}</span>
-          </button>
-        </div>
       </nav>
 
       <main className="workspace">
@@ -544,7 +631,7 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
         </header>
         ) : null}
 
-        {error ? <p className="banner error">{error}</p> : null}
+        {error ? <p ref={errorRef} className="banner error">{error}</p> : null}
         {notice ? <p className="banner ok">{notice}</p> : null}
         {loading ? <p>{t("loading")}</p> : null}
 
@@ -629,19 +716,32 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
                         previousGroup = item.group;
                         const checked = selected[item.id] === true;
                         const quantity = parseCount(quantities[item.id] ?? "");
-                        const amount = !checked || Number.isNaN(quantity) ? 0 : lineAmount(item.pricingType, item.unitPrice, quantity);
+                        const amount = !checked || Number.isNaN(quantity) ? 0 : lineAmount(item.pricingType, lineFee(item), quantity);
                         return (
                           <div key={item.id}>
                             {showGroup ? <h3 className="group">{item.group}</h3> : null}
-                            <div className={checked ? "item" : "item off"}>
+                            <div
+                              className={checked ? "item" : "item off"}
+                              onDoubleClick={(event) => {
+                                const target = event.target;
+                                if (!(target instanceof HTMLElement)) return;
+                                if (target.closest("input, button, textarea, select, a")) return;
+                                startFeeEdit(item);
+                              }}
+                            >
                               <input
                                 type="checkbox"
                                 checked={checked}
                                 aria-label={`${item.displayCode} ${item.name}`}
                                 onChange={(event) => {
-                                  const checked = event.target.checked;
-                                  setSelected((current) => ({ ...current, [item.id]: checked }));
-                                  if (checked) {
+                                  const nextChecked = event.target.checked;
+                                  setSelected((current) => ({ ...current, [item.id]: nextChecked }));
+                                  if (nextChecked) {
+                                    setQuantities((current) => {
+                                      const existing = current[item.id] ?? "";
+                                      if (existing !== "") return current;
+                                      return { ...current, [item.id]: "0" };
+                                    });
                                     setModuleOn((current) => ({ ...current, [category.id]: true }));
                                     return;
                                   }
@@ -650,7 +750,7 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
                                 }}
                               />
                               <div className="code">{item.displayCode}</div>
-                              <div className="name">
+                              <div className="name" title={t("item.editFee")}>
                                 <div>
                                   {item.name}
                                   <span className="basis">/ {t(`basis.${item.chargeBasis}`)}</span>
@@ -663,22 +763,58 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
                                   </ul>
                                 ) : null}
                               </div>
-                              <div className="price">{formatHkd(item.unitPrice)}</div>
+                              {editingFeeId === item.id ? (
+                                <CountInput
+                                  className="price-edit"
+                                  ariaLabel={`${item.displayCode} ${t("item.fee")}`}
+                                  autoFocus
+                                  value={feeEdits[item.id] ?? String(item.unitPrice)}
+                                  onChange={(value) => setFeeEdits((current) => ({ ...current, [item.id]: value }))}
+                                  onBlur={() => {
+                                    setFeeEdits((current) => {
+                                      const value = current[item.id];
+                                      if (value != null && value.trim() !== "") return current;
+                                      const next = { ...current };
+                                      delete next[item.id];
+                                      return next;
+                                    });
+                                    setEditingFeeId(null);
+                                  }}
+                                />
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="fee-hit"
+                                  title={t("item.editFee")}
+                                  onDoubleClick={() => startFeeEdit(item)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") startFeeEdit(item);
+                                  }}
+                                >
+                                  {item.pricingType === "included" && lineFee(item) === 0 ? t("item.included") : formatHkd(lineFee(item))}
+                                </button>
+                              )}
                               {item.quantityLocked ? (
                                 <div className="locked">{item.quantityLabel}</div>
                               ) : (
                                 <CountInput
-                                  className="qty"
+                                  className={checked && (Number.isNaN(quantity) || quantity < 1) ? "qty needs-count" : "qty"}
                                   ariaLabel={`${item.displayCode} ${t("item.count")}`}
                                   disabled={!checked}
                                   value={quantities[item.id] ?? ""}
+                                  title={checked && (Number.isNaN(quantity) || quantity < 1) ? t("item.needCount") : undefined}
+                                  invalid={checked && (Number.isNaN(quantity) || quantity < 1)}
                                   onChange={(value) =>
                                     setQuantities((current) => ({ ...current, [item.id]: value }))
                                   }
                                 />
                               )}
-                              <div className={item.pricingType === "rate_only" ? "amount rate" : "amount"}>
-                                {item.pricingType === "rate_only" ? t("item.rateOnly") : formatHkd(amount)}
+                              <div className={item.pricingType === "calculated" ? "amount" : "amount rate"}>
+                                {item.pricingType === "rate_only"
+                                  ? t("item.rateOnly")
+                                  : item.pricingType === "included"
+                                    ? t("item.included")
+                                    : formatHkd(amount)}
                               </div>
                             </div>
                           </div>
@@ -714,7 +850,7 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
                   <Icon name="save" />
                   <span>{t("actions.save")}</span>
                 </button>
-                <button type="button" className="secondary" disabled={exporting || totals.invalid} onClick={() => void exportCurrent()}>
+                <button type="button" className="secondary" disabled={exporting} onClick={() => void exportCurrent()}>
                   <Icon name="export" />
                   <span>{t("actions.export")}</span>
                 </button>
@@ -767,7 +903,7 @@ function Workspace({ user, onLogout }: { user: string; onLogout: () => void }) {
                 <dd>{totals.invalid ? t("summary.checkCounts") : formatHkd(totals.total)}</dd>
               </dl>
               <div className="actions">
-                <button type="button" className="primary" disabled={saving || totals.invalid} onClick={() => void save()}>
+                <button type="button" className="primary" disabled={saving} onClick={() => void save()}>
                   <Icon name="save" />
                   <span>{saving ? t("actions.saving") : t("actions.save")}</span>
                 </button>
@@ -816,12 +952,20 @@ function CountInput({
   disabled = false,
   className,
   ariaLabel,
+  title,
+  invalid = false,
+  autoFocus = false,
+  onBlur,
 }: {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
   className?: string;
   ariaLabel?: string;
+  title?: string;
+  invalid?: boolean;
+  autoFocus?: boolean;
+  onBlur?: () => void;
 }) {
   return (
     <input
@@ -831,10 +975,15 @@ function CountInput({
       min={0}
       step={1}
       aria-label={ariaLabel}
+      aria-invalid={invalid || undefined}
+      title={title}
       disabled={disabled}
+      autoFocus={autoFocus}
       value={value}
+      onBlur={onBlur}
       onKeyDown={(event) => {
         if (["e", "E", "+", "-", "."].includes(event.key)) event.preventDefault();
+        if (event.key === "Enter") event.currentTarget.blur();
       }}
       onChange={(event) => {
         const next = wholeCountInput(event.target.value);

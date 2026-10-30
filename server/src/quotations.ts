@@ -224,7 +224,7 @@ export async function priceDraft(input: CreateQuotationInput) {
     chargeBasis: asChargeBasis(item.chargeBasis),
     quantityLocked: item.quantityLocked === 1,
   }));
-  return priceQuotation(categories, items, input.quantities, input.discount, input.included);
+  return priceQuotation(categories, items, input.quantities, input.discount, input.included, input.unitPrices);
 }
 
 export async function createQuotation(input: CreateQuotationInput) {

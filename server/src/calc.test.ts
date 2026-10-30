@@ -4,23 +4,23 @@ import { CATEGORIES, ITEMS, SFK_SAMPLE } from "./catalog.ts";
 import { excelSerial, formatQuotationNo, lineAmount, normalizeShortCode, priceQuotation } from "./calc.ts";
 
 const EXPECTED_SUBTOTALS: Record<string, number> = {
-  A: 172000,
-  B: 35500,
-  C: 101000,
-  D: 331000,
-  E: 444000,
-  F: 470400,
-  G: 59500,
-  H: 151200,
-  I: 225500,
-  J: 10000,
-  K: 85500,
-  L: 135500,
+  A: 40000,
+  B: 10000,
+  C: 12000,
+  D: 1500,
+  E: 24000,
+  F: 72800,
+  G: 11200,
+  H: 22000,
+  I: 50000,
+  J: 21000,
+  K: 21000,
+  L: 12000,
 };
 
 test("catalog has one fixed-price list under categories A to L", () => {
   assert.equal(CATEGORIES.length, 12);
-  assert.equal(ITEMS.length, 59);
+  assert.equal(ITEMS.length, 37);
   const ids = new Set(ITEMS.map((item) => item.id));
   assert.equal(ids.size, ITEMS.length);
   for (const item of ITEMS) {
@@ -34,14 +34,37 @@ test("catalog has one fixed-price list under categories A to L", () => {
   }
 });
 
-test("sample quantities reproduce the reference total of 2040700", () => {
+test("sample quantities reproduce the reference total of 297500", () => {
   const quantities = Object.fromEntries(ITEMS.map((item) => [item.id, item.sampleQuantity]));
   const priced = priceQuotation(CATEGORIES, ITEMS, quantities, SFK_SAMPLE.discount);
   for (const category of priced.categorySubtotals) {
     assert.equal(category.subtotal, EXPECTED_SUBTOTALS[category.categoryId], category.categoryId);
   }
-  assert.equal(priced.beforeDiscount, 2_221_100);
-  assert.equal(priced.total, 2_040_700);
+  assert.equal(priced.beforeDiscount, 297_500);
+  assert.equal(priced.total, 297_500);
+});
+
+test("one-off lines use the corrected fee times the count", () => {
+  const priced = priceQuotation(
+    [{ id: "W" }],
+    [
+      {
+        id: "once",
+        categoryId: "W",
+        unitPrice: 100,
+        pricingType: "calculated",
+        chargeBasis: "one_off",
+        quantityLocked: false,
+      },
+    ],
+    { once: 1 },
+    0,
+    { once: true },
+    { once: 2500 },
+  );
+  assert.equal(priced.lines[0]?.chargeBasis, "one_off");
+  assert.equal(priced.lines[0]?.unitPrice, 2500);
+  assert.equal(priced.total, 2500);
 });
 
 test("weekly and rate-only items follow count times fixed price", () => {
@@ -69,7 +92,7 @@ test("unchecked items stay out of the total", () => {
   const quantities = Object.fromEntries(ITEMS.map((item) => [item.id, item.sampleQuantity]));
   const included = Object.fromEntries(ITEMS.map((item) => [item.id, item.id === "a1"]));
   const priced = priceQuotation(CATEGORIES, ITEMS, quantities, 0, included);
-  assert.equal(priced.total, 50000);
+  assert.equal(priced.total, 20000);
   assert.equal(priced.lines.find((line) => line.priceItemId === "a2")?.included, false);
   assert.equal(priced.lines.find((line) => line.priceItemId === "a2")?.amount, 0);
 });

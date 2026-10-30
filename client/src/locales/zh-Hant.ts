@@ -3,7 +3,7 @@ import type { Messages } from "./en";
 export const zhHant: Messages = {
   company: "Keen Rich Enterprise Limited",
   title: "內部報價",
-  lede: "勾選需要的小項。勾選後可修改數量。共用的名稱、單價和子項請到調整項目修改。",
+  lede: "勾選需要的小項。勾選後數量是 0，請至少填 1。連按兩下小項可改這張報價的費用。共用的名稱和價目請到調整項目修改。",
   totalLabel: "合約總額",
   loading: "正在載入價目表…",
   newQuotation: "新報價",
@@ -61,7 +61,7 @@ export const zhHant: Messages = {
   },
   summary: {
     title: "數量",
-    help: "把合約期套用到已勾選的月費或週費小項。按件的數量要在已勾選的小項上逐項填。",
+    help: "把合約期套用到已勾選的月費或週費小項。按件和一次性的數量要在已勾選的小項上逐項填。",
     months: "合約月數",
     weeks: "合約週數",
     applyMonths: "套用到已勾選的月費",
@@ -74,12 +74,17 @@ export const zhHant: Messages = {
   },
   item: {
     rateOnly: "只報單價",
+    included: "已包含",
     count: "數量",
+    fee: "費用",
+    editFee: "連按兩下可修改這項費用",
+    needCount: "請至少填 1",
   },
   basis: {
     unit: "件",
     month: "月",
     week: "週",
+    one_off: "一次性",
   },
   notice: {
     sample: "已載入 SFK 範例。只有有範例數量的小項會被勾選。",
@@ -98,6 +103,8 @@ export const zhHant: Messages = {
     open: "無法開啟這張報價。",
     delete: "無法刪除這張報價。",
     export: "無法匯出 Excel。",
+    missing: "請補上缺少的資料：{{list}}。",
+    itemCount: "{{code}} 數量",
     generic: "無法儲存報價。",
     priceList: "無法儲存價目。",
   },

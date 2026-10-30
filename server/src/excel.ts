@@ -4,8 +4,6 @@ import { getContext } from "./context.ts";
 import {
   CATEGORIES,
   CONTRACT_MONTHS_CELL,
-  DISCOUNT_CELL,
-  DISCOUNT_NOTE_CELL,
   ITEMS,
   TOTAL_CELL,
 } from "./catalog.ts";
@@ -39,19 +37,79 @@ export type WorkbookQuotation = {
 };
 
 const MODULE_ROWS: Record<string, Array<[number, number]>> = {
-  A: [[38, 67]],
-  B: [[69, 85]],
-  C: [[86, 107]],
-  D: [[108, 131]],
-  E: [[132, 152]],
-  F: [[153, 180]],
-  G: [[181, 200]],
-  H: [[201, 228]],
-  I: [[229, 245], [247, 250]],
-  J: [[251, 268]],
-  K: [[269, 283]],
-  L: [[284, 295]],
+  A: [[37, 58]],
+  B: [[60, 74]],
+  C: [[75, 93]],
+  D: [[94, 115]],
+  E: [[116, 130]],
+  F: [[131, 155]],
+  G: [[156, 175]],
+  H: [[176, 191]],
+  I: [[192, 207]],
+  J: [[208, 222]],
+  K: [[223, 237]],
+  L: [[238, 255]],
 };
+
+function basisLabel(basis: PricedLine["chargeBasis"]): string {
+  if (basis === "one_off") return "one off";
+  return basis;
+}
+
+const SUMMARY_LETTER_ROW: Record<string, number> = {
+  A: 24,
+  B: 25,
+  C: 26,
+  D: 27,
+  E: 28,
+  F: 29,
+  G: 30,
+  H: 31,
+  I: 32,
+  J: 33,
+  K: 34,
+  L: 35,
+};
+
+const SECTION_LETTER_ROW: Record<string, number> = {
+  A: 38,
+  B: 60,
+  C: 75,
+  D: 94,
+  E: 116,
+  F: 131,
+  G: 156,
+  H: 176,
+  I: 192,
+  J: 208,
+  K: 223,
+  L: 238,
+};
+
+function renumberIncludedCategories(sheet: ExcelJS.Worksheet, lines: PricedLine[]) {
+  const included = new Set(lines.filter((line) => line.included).map((line) => line.categoryId));
+  let next = 0;
+  for (const category of CATEGORIES) {
+    const summaryRow = SUMMARY_LETTER_ROW[category.id];
+    if (!included.has(category.id)) {
+      if (summaryRow) sheet.getRow(summaryRow).hidden = true;
+      continue;
+    }
+    const letter = String.fromCharCode(65 + next);
+    next += 1;
+    if (summaryRow) sheet.getCell(`B${summaryRow}`).value = letter;
+    const sectionRow = SECTION_LETTER_ROW[category.id];
+    if (sectionRow) sheet.getCell(`B${sectionRow}`).value = letter;
+    if (letter === category.code) continue;
+    const prefix = new RegExp(`^${category.code}(?=\\d|$)`);
+    for (const spec of ITEMS.filter((item) => item.categoryId === category.id && item.writesCode)) {
+      const cell = sheet.getCell(spec.cells.code);
+      const current = plainCell(cell.value);
+      if (current === "" || !prefix.test(current)) continue;
+      cell.value = current.replace(prefix, letter);
+    }
+  }
+}
 
 function hideExcludedModules(sheet: ExcelJS.Worksheet, lines: PricedLine[]) {
   const included = new Set(lines.filter((line) => line.included).map((line) => line.categoryId));
@@ -62,7 +120,7 @@ function hideExcludedModules(sheet: ExcelJS.Worksheet, lines: PricedLine[]) {
     }
   }
   const integrated = ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
-  if (integrated.every((categoryId) => !included.has(categoryId))) sheet.getRow(68).hidden = true;
+  if (integrated.every((categoryId) => !included.has(categoryId))) sheet.getRow(59).hidden = true;
 }
 
 function writeFormulaResult(
@@ -101,9 +159,11 @@ function writeSharedText(sheet: ExcelJS.Worksheet, texts: CatalogText[]) {
     const text = byId.get(spec.id);
     if (!text) continue;
     const row = Number(spec.cells.amount.replace(/\D/g, ""));
-    const codeCell = sheet.getCell(`B${row}`);
-    const currentCode = plainCell(codeCell.value);
-    if (currentCode === "" || currentCode === spec.displayCode) codeCell.value = text.displayCode;
+    if (spec.writesCode) {
+      const codeCell = sheet.getCell(spec.cells.code);
+      const currentCode = plainCell(codeCell.value);
+      if (currentCode === "" || currentCode === spec.displayCode) codeCell.value = text.displayCode;
+    }
     const nameColumns = ["C", "D", "E"] as const;
     const currentNames = nameColumns.map((column) => plainCell(sheet.getCell(`${column}${row}`).value));
     nameColumns.forEach((column, index) => {
@@ -144,18 +204,20 @@ export async function buildQuotationWorkbook(quote: WorkbookQuotation, texts: Ca
   sheet.getCell("K10").value = quote.yourRef;
   sheet.getCell("K11").value = quote.revision;
   sheet.getCell(CONTRACT_MONTHS_CELL).value = quote.contractMonths;
-  sheet.getCell(DISCOUNT_NOTE_CELL).value = quote.discountNote;
-  sheet.getCell(DISCOUNT_CELL).value = quote.discount;
 
-  for (const line of quote.lines) {
+  const mappedLines = quote.lines.filter((line) => itemsById.has(line.priceItemId));
+  for (const line of mappedLines) {
     const spec = itemsById.get(line.priceItemId);
-    if (!spec) throw new Error(`No Excel cell map for ${line.priceItemId}.`);
+    if (!spec) continue;
     const exportQuantity = line.included ? line.quantity : 0;
     const exportAmount = line.included ? line.amount : 0;
     if (!spec.cells.quantityIsLabel && spec.cells.quantity) {
       sheet.getCell(spec.cells.quantity).value = exportQuantity;
     }
-    if (spec.cells.unit) sheet.getCell(spec.cells.unit).value = line.chargeBasis;
+    if (spec.cells.unit) {
+      const label = line.chargeBasis === spec.chargeBasis && spec.unitLabel ? spec.unitLabel : basisLabel(line.chargeBasis);
+      sheet.getCell(spec.cells.unit).value = label;
+    }
     if (spec.cells.price) sheet.getCell(spec.cells.price).value = line.unitPrice;
     if (line.pricingType === "calculated") {
       writeFormulaResult(sheet.getCell(spec.cells.amount), exportAmount, {
@@ -165,15 +227,24 @@ export async function buildQuotationWorkbook(quote: WorkbookQuotation, texts: Ca
     }
   }
 
+  const writtenTotal = mappedLines.reduce((sum, line) => sum + line.amount, 0) - quote.discount;
   for (const category of CATEGORIES) {
-    const subtotal = quote.lines
+    const subtotal = mappedLines
       .filter((line) => line.categoryId === category.id)
       .reduce((sum, line) => sum + line.amount, 0);
     writeFormulaResult(sheet.getCell(category.subtotalCell), subtotal);
   }
-  writeFormulaResult(sheet.getCell("K296"), quote.discount);
-  writeFormulaResult(sheet.getCell(TOTAL_CELL), quote.total);
-  hideExcludedModules(sheet, quote.lines);
+  const totalCell = sheet.getCell(TOTAL_CELL);
+  const currentTotal = totalCell.value;
+  if (currentTotal && typeof currentTotal === "object" && "formula" in currentTotal && typeof currentTotal.formula === "string") {
+    const base = currentTotal.formula.replace(/^\(|\)$/g, "").replace(/-\d+$/, "");
+    const formula = quote.discount > 0 ? `(${base})-${quote.discount}` : base;
+    totalCell.value = { formula, result: writtenTotal };
+  } else {
+    totalCell.value = writtenTotal;
+  }
+  hideExcludedModules(sheet, mappedLines);
+  renumberIncludedCategories(sheet, mappedLines);
 
   workbook.calcProperties.fullCalcOnLoad = true;
   const output = await workbook.xlsx.writeBuffer();

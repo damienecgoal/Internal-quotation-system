@@ -67,6 +67,79 @@ async function execScript(sql: Sql, script: string) {
   }
 }
 
+async function alignCatalog(sql: Sql) {
+  const stored = await sql.all<{ id: string; name: string }>("SELECT id, name FROM price_items");
+  const byId = new Map(stored.map((row) => [row.id, row.name]));
+  const drifted = stored.length !== ITEMS.length || ITEMS.some((item) => byId.get(item.id) !== item.name);
+  if (!drifted) return;
+
+  const catalogIds = new Set(ITEMS.map((item) => item.id));
+  const obsolete = stored.map((row) => row.id).filter((id) => !catalogIds.has(id));
+  if (obsolete.length > 0) {
+    const marks = obsolete.map(() => "?").join(", ");
+    await sql.run(`DELETE FROM quotation_lines WHERE price_item_id IN (${marks})`, obsolete);
+    await sql.run(`DELETE FROM price_items WHERE id IN (${marks})`, obsolete);
+  }
+
+  for (const category of CATEGORIES) {
+    await sql.run(
+      `INSERT INTO price_categories (id, code, name, description, product_line, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         code = excluded.code,
+         name = excluded.name,
+         description = excluded.description,
+         product_line = excluded.product_line,
+         sort_order = excluded.sort_order`,
+      [category.id, category.code, category.name, category.description, category.productLine, category.sortOrder],
+    );
+  }
+
+  for (const item of ITEMS) {
+    await sql.run(
+      `INSERT INTO price_items (
+         id, category_id, display_code, name, charge_basis, unit_price, pricing_type, sort_order,
+         notes, group_label, quantity_locked, quantity_label, sample_quantity
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         category_id = excluded.category_id,
+         display_code = excluded.display_code,
+         name = excluded.name,
+         charge_basis = excluded.charge_basis,
+         unit_price = excluded.unit_price,
+         pricing_type = excluded.pricing_type,
+         sort_order = excluded.sort_order,
+         notes = excluded.notes,
+         group_label = excluded.group_label,
+         quantity_locked = excluded.quantity_locked,
+         quantity_label = excluded.quantity_label,
+         sample_quantity = excluded.sample_quantity`,
+      [
+        item.id,
+        item.categoryId,
+        item.displayCode,
+        item.name,
+        item.chargeBasis,
+        item.unitPrice,
+        item.pricingType,
+        item.sortOrder,
+        JSON.stringify(item.notes),
+        item.group,
+        item.quantityLocked ? 1 : 0,
+        item.quantityLabel,
+        item.sampleQuantity,
+      ],
+    );
+  }
+
+  await sql.run(
+    `UPDATE quotations
+     SET total = (
+       SELECT COALESCE(SUM(amount), 0) FROM quotation_lines WHERE quotation_id = quotations.id
+     ) - discount`,
+  );
+}
+
 async function seed(sql: Sql) {
   const count = await sql.get<{ n: number }>("SELECT COUNT(*) AS n FROM price_categories");
   if (Number(count?.n ?? 0) === 0) {
@@ -101,6 +174,8 @@ async function seed(sql: Sql) {
       );
     }
   }
+
+  await alignCatalog(sql);
 
   for (const sequence of SEEDED_SEQUENCES) {
     await sql.run(

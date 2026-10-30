@@ -28,6 +28,7 @@ export type CreateQuotationInput = {
   discountNote: string;
   quantities: Record<string, number>;
   included: Record<string, boolean>;
+  unitPrices: Record<string, number>;
 };
 
 const MAX_COUNT = 1_000_000;
@@ -102,12 +103,16 @@ export function validateCreate(
   const known = new Set(items.map((item) => item.id));
   const quantities: Record<string, number> = {};
   const included: Record<string, boolean> = {};
+  const unitPrices: Record<string, number> = {};
   for (const line of body.lines) {
     if (!isRecord(line) || typeof line.priceItemId !== "string") {
       return { ok: false, message: "Each line needs a price item id." };
     }
     if (!known.has(line.priceItemId)) {
-      return { ok: false, message: `Unknown price item ${line.priceItemId}.` };
+      return {
+        ok: false,
+        message: `Unknown price item ${line.priceItemId}. Reload the page and try again.`,
+      };
     }
     if (quantities[line.priceItemId] != null) {
       return { ok: false, message: `Duplicate price item ${line.priceItemId}.` };
@@ -116,6 +121,11 @@ export function validateCreate(
     if (quantity == null) return { ok: false, message: "Each quantity must be a whole number." };
     if (line.included != null && typeof line.included !== "boolean") {
       return { ok: false, message: "Each line needs an included flag." };
+    }
+    if (line.unitPrice != null) {
+      const unitPrice = wholeNumber(line.unitPrice);
+      if (unitPrice == null) return { ok: false, message: "Each item fee must be a whole number or zero." };
+      unitPrices[line.priceItemId] = unitPrice;
     }
     quantities[line.priceItemId] = quantity;
     included[line.priceItemId] = line.included !== false;
@@ -141,17 +151,18 @@ export function validateCreate(
       discountNote: discountNote as string,
       quantities,
       included,
+      unitPrices,
     },
   };
 }
 
 export function asChargeBasis(value: string): ChargeBasis {
-  if (value === "unit" || value === "month" || value === "week") return value;
+  if (value === "unit" || value === "month" || value === "week" || value === "one_off") return value;
   throw new Error(`Unknown charge basis ${value}`);
 }
 
 export function asPricingType(value: string): PricingType {
-  if (value === "calculated" || value === "rate_only") return value;
+  if (value === "calculated" || value === "rate_only" || value === "included") return value;
   throw new Error(`Unknown pricing type ${value}`);
 }
 
@@ -187,8 +198,8 @@ export function validateSharedItems(
     if (displayCode == null) return { ok: false, message: "Each item code must be text." };
     const group = optionalText(entry, "group");
     if (group == null) return { ok: false, message: "Each item group must be text." };
-    if (entry.chargeBasis !== "unit" && entry.chargeBasis !== "month" && entry.chargeBasis !== "week") {
-      return { ok: false, message: "Each item needs a charge basis of unit, month, or week." };
+    if (entry.chargeBasis !== "unit" && entry.chargeBasis !== "month" && entry.chargeBasis !== "week" && entry.chargeBasis !== "one_off") {
+      return { ok: false, message: "Each item needs a charge basis of unit, month, week, or one off." };
     }
     const unitPrice = wholeNumber(entry.unitPrice);
     if (unitPrice == null) return { ok: false, message: "Each unit price must be a whole number or zero." };
